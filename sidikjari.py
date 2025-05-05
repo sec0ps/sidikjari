@@ -63,12 +63,6 @@ import xml.etree.ElementTree as ET
 import zipfile
 import csv
 
-# For PDF generation
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-
 # Network tools
 import dns.resolver
 import socket
@@ -91,7 +85,7 @@ logger = logging.getLogger("Sidikjari")
 console = Console()
 
 class Sidikjari:
-    def __init__(self, target_url=None, output_dir="output", depth=2, threads=10, report_format="text", time_delay=0.0, user_agent="default"):
+    def __init__(self, target_url=None, output_dir="output", depth=2, threads=10, time_delay=0.0, user_agent="default"):
         # Add https:// scheme if not present and target_url is provided
         if target_url and not target_url.startswith(('http://', 'https://')):
             target_url = f'https://{target_url}'
@@ -103,7 +97,6 @@ class Sidikjari:
         self.output_dir = output_dir
         self.depth = depth
         self.threads = threads
-        self.report_format = report_format  # "text", "html", or "pdf"
         self.time_delay = time_delay  # Delay between requests in seconds
         self.user_agent = self._get_user_agent(user_agent)  # User agent string
         self.visited_urls = set()
@@ -956,21 +949,12 @@ class Sidikjari:
         self.generate_reports(domain_data) 
 
     def generate_reports(self, domain_data=None):
-        """Generate reports in the requested format(s)"""
-        logger.info(f"{Fore.GREEN}Generating reports{Style.RESET_ALL}")
+        """Generate HTML report with enhanced features"""
+        logger.info(f"{Fore.GREEN}Generating report{Style.RESET_ALL}")
         
         # Store domain_data as a class attribute if provided
         if domain_data:
             self.domain_data = domain_data
-        
-        # Determine which formats to generate based on class attributes
-        formats_to_generate = []
-        if hasattr(self, 'report_formats') and self.report_formats:
-            formats_to_generate = self.report_formats
-        else:
-            formats_to_generate = [self.report_format]
-        
-        generated_reports = []
         
         # Determine the target domain from target_url if available
         target_domain = None
@@ -987,651 +971,23 @@ class Sidikjari:
                 # Force WHOIS data collection before report generation
                 domain_info = self._analyze_domain_info(target_domain)
                 logger.info(f"Collected WHOIS data for {target_domain}")
-                # Log the data for debugging
-                logger.debug(f"WHOIS data: {domain_info}")
             except Exception as e:
                 logger.error(f"Error collecting WHOIS data: {str(e)}")
         
-        # Generate reports in each requested format
-        for format_type in formats_to_generate:
-            # Use the correct file extension for each format
-            if format_type == "text":
-                file_extension = "txt"
-            else:
-                file_extension = format_type
-                
-            report_filename = f"Sidikjari_report.{file_extension}"
-            report_path = os.path.join(self.output_dir, report_filename)
-            
-            try:
-                if format_type == "text":
-                    self._generate_text_report(report_path, target_domain, domain_info)
-                elif format_type == "html":
-                    self._generate_html_report(report_path, target_domain, domain_info)
-                elif format_type == "pdf":
-                    self._generate_pdf_report(report_path, target_domain, domain_info)
-                else:
-                    logger.error(f"Unknown report format: {format_type}")
-                    continue
-                
-                generated_reports.append(report_path)
-                logger.info(f"{Fore.GREEN}Report generated: {report_path}{Style.RESET_ALL}")
-            except Exception as e:
-                logger.error(f"Error generating {format_type} report: {str(e)}")
-                # Print traceback for debugging
-                import traceback
-                logger.error(traceback.format_exc())
+        # Generate HTML report
+        report_filename = "Sidikjari_report.html"
+        report_path = os.path.join(self.output_dir, report_filename)
         
-        return generated_reports
-
-    def _generate_pdf_report(self, report_path, target_domain):
-        """Generate a PDF report using ReportLab"""
         try:
-            doc = SimpleDocTemplate(report_path, pagesize=letter)
-            styles = getSampleStyleSheet()
-            elements = []
-            
-            # Create custom style with a unique name to avoid conflicts
-            custom_heading_style = ParagraphStyle(
-                name='CustomHeading3',
-                parent=styles['Heading2'],
-                fontSize=14,
-                spaceAfter=6
-            )
-            styles.add(custom_heading_style)
-            
-            # Title
-            title_style = styles["Title"]
-            elements.append(Paragraph("Sidikjari Metadata Analysis Report", title_style))
-            elements.append(Spacer(1, 12))
-            
-            # Target Information
-            elements.append(Paragraph(f"Target: {self.target_url if self.target_url else self.input_dir}", styles["Normal"]))
-            elements.append(Spacer(1, 12))
-            
-            # Domain Information Section
-            if target_domain and target_domain in self.internal_domains:
-                domain_info = self._analyze_domain_info(target_domain)
-                
-                elements.append(Paragraph("DOMAIN INFORMATION", styles["Heading1"]))
-                elements.append(Paragraph(f"Domain: {target_domain}", styles["Normal"]))
-                elements.append(Spacer(1, 12))
-                
-                # Registrant Information
-                elements.append(Paragraph("Registrant Information", styles["Heading2"]))
-                data = []
-                if domain_info['registrant']['name']:
-                    data.append(["Name", domain_info['registrant']['name']])
-                if domain_info['registrant']['organization']:
-                    data.append(["Organization", domain_info['registrant']['organization']])
-                if domain_info['registrant']['email']:
-                    data.append(["Email", domain_info['registrant']['email']])
-                if domain_info['registrant']['phone']:
-                    data.append(["Phone", domain_info['registrant']['phone']])
-                if domain_info['registrant']['fax']:
-                    data.append(["Fax", domain_info['registrant']['fax']])
-                if domain_info['registrant']['street']:
-                    data.append(["Street", domain_info['registrant']['street']])
-                if domain_info['registrant']['city']:
-                    data.append(["City", domain_info['registrant']['city']])
-                if domain_info['registrant']['state']:
-                    data.append(["State/Province", domain_info['registrant']['state']])
-                if domain_info['registrant']['postal_code']:
-                    data.append(["Postal Code", domain_info['registrant']['postal_code']])
-                if domain_info['registrant']['country']:
-                    data.append(["Country", domain_info['registrant']['country']])
-                    
-                if data:
-                    t = Table(data, colWidths=[100, 400])
-                    t.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-                        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                    ]))
-                    elements.append(t)
-                elements.append(Spacer(1, 12))
-                
-                # Admin Information
-                elements.append(Paragraph("Admin Information", styles["Heading2"]))
-                data = []
-                if domain_info['admin']['name']:
-                    data.append(["Name", domain_info['admin']['name']])
-                if domain_info['admin']['organization']:
-                    data.append(["Organization", domain_info['admin']['organization']])
-                if domain_info['admin']['email']:
-                    data.append(["Email", domain_info['admin']['email']])
-                if domain_info['admin']['phone']:
-                    data.append(["Phone", domain_info['admin']['phone']])
-                if domain_info['admin']['fax']:
-                    data.append(["Fax", domain_info['admin']['fax']])
-                if domain_info['admin']['street']:
-                    data.append(["Street", domain_info['admin']['street']])
-                if domain_info['admin']['city']:
-                    data.append(["City", domain_info['admin']['city']])
-                if domain_info['admin']['state']:
-                    data.append(["State/Province", domain_info['admin']['state']])
-                if domain_info['admin']['postal_code']:
-                    data.append(["Postal Code", domain_info['admin']['postal_code']])
-                if domain_info['admin']['country']:
-                    data.append(["Country", domain_info['admin']['country']])
-                    
-                if data:
-                    t = Table(data, colWidths=[100, 400])
-                    t.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-                        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                    ]))
-                    elements.append(t)
-                elements.append(Spacer(1, 12))
-                
-                # Tech Information
-                elements.append(Paragraph("Tech Information", styles["Heading2"]))
-                data = []
-                if domain_info['tech']['name']:
-                    data.append(["Name", domain_info['tech']['name']])
-                if domain_info['tech']['organization']:
-                    data.append(["Organization", domain_info['tech']['organization']])
-                if domain_info['tech']['email']:
-                    data.append(["Email", domain_info['tech']['email']])
-                if domain_info['tech']['phone']:
-                    data.append(["Phone", domain_info['tech']['phone']])
-                if domain_info['tech']['fax']:
-                    data.append(["Fax", domain_info['tech']['fax']])
-                if domain_info['tech']['street']:
-                    data.append(["Street", domain_info['tech']['street']])
-                if domain_info['tech']['city']:
-                    data.append(["City", domain_info['tech']['city']])
-                if domain_info['tech']['state']:
-                    data.append(["State/Province", domain_info['tech']['state']])
-                if domain_info['tech']['postal_code']:
-                    data.append(["Postal Code", domain_info['tech']['postal_code']])
-                if domain_info['tech']['country']:
-                    data.append(["Country", domain_info['tech']['country']])
-                    
-                if data:
-                    t = Table(data, colWidths=[100, 400])
-                    t.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-                        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                    ]))
-                    elements.append(t)
-                elements.append(Spacer(1, 12))
-                
-                # General domain information
-                elements.append(Paragraph("Domain Details", styles["Heading2"]))
-                data = []
-                if domain_info['registrar']:
-                    data.append(["Registrar", domain_info['registrar']])
-                if domain_info['creation_date']:
-                    data.append(["Creation Date", str(domain_info['creation_date'])])
-                if domain_info['update_date']:
-                    data.append(["Updated Date", str(domain_info['update_date'])])
-                if domain_info['expiration_date']:
-                    data.append(["Expiration Date", str(domain_info['expiration_date'])])
-                    
-                if data:
-                    t = Table(data, colWidths=[100, 400])
-                    t.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-                        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                    ]))
-                    elements.append(t)
-                elements.append(Spacer(1, 12))
-                
-                # Domain Status
-                if domain_info['domain_status']:
-                    elements.append(Paragraph("Domain Status", custom_heading_style))
-                    status_text = "\n".join([f"• {status}" for status in domain_info['domain_status']])
-                    elements.append(Paragraph(status_text, styles["Normal"]))
-                    elements.append(Spacer(1, 8))
-                
-                # Name Servers
-                if domain_info['name_servers']:
-                    elements.append(Paragraph("Name Servers", custom_heading_style))
-                    ns_text = "\n".join([f"• {ns}" for ns in domain_info['name_servers']])
-                    elements.append(Paragraph(ns_text, styles["Normal"]))
-                    elements.append(Spacer(1, 12))
-                
-                # IP Address Information
-                elements.append(Paragraph("IP ADDRESS INFORMATION", styles["Heading1"]))
-                
-                for ip in domain_info['ip_addresses']:
-                    elements.append(Paragraph(f"{target_domain} -> {ip}", styles["Heading2"]))
-                    
-                    if ip in self.ip_info:
-                        ip_data = self.ip_info[ip]
-                        data = []
-                        if ip_data['cidr']:
-                            data.append(["IP CIDR", ip_data['cidr']])
-                        if ip_data['asn']:
-                            asn_info = f"{ip_data['asn']}"
-                            if ip_data['organization']:
-                                asn_info += f" ({ip_data['organization']})"
-                            data.append(["Origin AS", asn_info])
-                        if ip_data['country']:
-                            data.append(["Country", ip_data['country']])
-                        if ip_data['reverse_dns']:
-                            data.append(["Reverse DNS", ip_data['reverse_dns']])
-                            
-                        if data:
-                            t = Table(data, colWidths=[100, 400])
-                            t.setStyle(TableStyle([
-                                ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-                                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                            ]))
-                            elements.append(t)
-                    elements.append(Spacer(1, 12))
-            
-            # Document Metadata section
-            elements.append(Paragraph("DOCUMENT METADATA INFORMATION", styles["Heading1"]))
-            
-            for file_path, metadata in self.document_metadata.items():
-                filename = os.path.basename(file_path)
-                file_type = os.path.splitext(filename)[1].lower().replace('.', '')
-                
-                elements.append(Paragraph(f"File: {filename}", styles["Heading2"]))
-                
-                data = [
-                    ["File Type", file_type],
-                    ["File Size", f"{metadata['file_size']} bytes"]
-                ]
-                
-                if metadata['title']:
-                    data.append(["Title", metadata['title']])
-                if metadata['subject']:
-                    data.append(["Subject", metadata['subject']])
-                if metadata['creation_date']:
-                    data.append(["Creation Date", str(metadata['creation_date'])])
-                if metadata['modification_date']:
-                    data.append(["Modification Date", str(metadata['modification_date'])])
-                    
-                t = Table(data, colWidths=[150, 350])
-                t.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-                    ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ]))
-                elements.append(t)
-                elements.append(Spacer(1, 8))
-                
-                # Authors
-                if metadata['authors']:
-                    elements.append(Paragraph("Authors/Users:", custom_heading_style))
-                    authors_text = ", ".join(sorted(metadata['authors']))
-                    elements.append(Paragraph(authors_text, styles["Normal"]))
-                    elements.append(Spacer(1, 8))
-                
-                # Software
-                if metadata['software']:
-                    elements.append(Paragraph("Software Used:", custom_heading_style))
-                    sw_text = ", ".join(sorted(metadata['software']))
-                    elements.append(Paragraph(sw_text, styles["Normal"]))
-                    elements.append(Spacer(1, 8))
-                
-                # Emails
-                if metadata['found_emails']:
-                    elements.append(Paragraph("Emails Found:", custom_heading_style))
-                    email_text = ", ".join(sorted(metadata['found_emails']))
-                    elements.append(Paragraph(email_text, styles["Normal"]))
-                    elements.append(Spacer(1, 8))
-                
-                # URLs
-                if metadata['found_urls']:
-                    elements.append(Paragraph("URLs Found:", custom_heading_style))
-                    urls_text = ", ".join(sorted(metadata['found_urls']))
-                    elements.append(Paragraph(urls_text, styles["Normal"]))
-                    elements.append(Spacer(1, 8))
-                
-                # Paths
-                if metadata['found_paths']:
-                    elements.append(Paragraph("Paths Found:", custom_heading_style))
-                    paths_text = ", ".join(sorted(metadata['found_paths']))
-                    elements.append(Paragraph(paths_text, styles["Normal"]))
-                    elements.append(Spacer(1, 8))
-                
-                # GPS data
-                if 'gps_data' in metadata and metadata['gps_data']:
-                    elements.append(Paragraph("GPS Coordinates:", custom_heading_style))
-                    gps_data = metadata['gps_data']
-                    gps_text = []
-                    if 'lat' in gps_data:
-                        gps_text.append(f"Latitude: {gps_data['lat']}")
-                    if 'lon' in gps_data:
-                        gps_text.append(f"Longitude: {gps_data['lon']}")
-                    if 'alt' in gps_data:
-                        gps_text.append(f"Altitude: {gps_data['alt']}")
-                    elements.append(Paragraph(", ".join(gps_text), styles["Normal"]))
-                    elements.append(Spacer(1, 8))
-                
-                # All Metadata Fields - FULL DETAILED LISTING
-                elements.append(Paragraph("All Metadata Fields:", custom_heading_style))
-                
-                # Get the flattened metadata
-                flattened = {}
-                if 'all_metadata' in metadata and metadata['all_metadata']:
-                    flattened = metadata['all_metadata']
-                elif 'exiftool_metadata' in metadata and metadata['exiftool_metadata']:
-                    flattened = self._flatten_metadata(metadata['exiftool_metadata'])
-                
-                # Check if we have any metadata to display
-                if flattened:
-                    # Convert to list of key-value pairs and sort by key
-                    all_data = [[key, str(value)] for key, value in sorted(flattened.items()) if value is not None]
-                    
-                    # Split into chunks to avoid overly long tables that might not fit on a page
-                    chunk_size = 20
-                    for i in range(0, len(all_data), chunk_size):
-                        data_chunk = all_data[i:i+chunk_size]
-                        t = Table(data_chunk, colWidths=[150, 350])
-                        t.setStyle(TableStyle([
-                            ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-                            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                        ]))
-                        elements.append(t)
-                        elements.append(Spacer(1, 4))  # Small spacer between table chunks
-                else:
-                    elements.append(Paragraph("No detailed metadata available", styles["Normal"]))
-                
-                elements.append(Spacer(1, 12))
-            
-            # Footer
-            footer_style = ParagraphStyle(
-                'Footer',
-                parent=styles['Normal'],
-                fontSize=8,
-                textColor=colors.grey,
-                alignment=1
-            )
-            elements.append(Spacer(1, 20))
-            elements.append(Paragraph("Report generated by Sidikjari - Metadata Extraction Tool", footer_style))
-            elements.append(Paragraph("Red Cell Security, LLC - www.redcellsecurity.org", footer_style))
-            
-            # Build the PDF
-            doc.build(elements)
-            logger.info(f"PDF report generated: {report_path}")
-            
+            self._generate_html_report(report_path, target_domain, domain_info)
+            logger.info(f"{Fore.GREEN}Report generated: {report_path}{Style.RESET_ALL}")
+            return [report_path]
         except Exception as e:
-            logger.error(f"Error generating PDF report: {str(e)}")
-
-    def _generate_text_report(self, report_path, target_domain, domain_info=None):
-        """Generate a detailed text report with domain information"""
-        with open(report_path, 'w') as f:
-            f.write("SIDIKJARI METADATA ANALYSIS REPORT\n")
-            f.write("================================\n\n")
-            
-            # Target information
-            f.write(f"Target: {self.target_url if self.target_url else self.input_dir}\n\n")
-            
-            # Domain Information
-            if target_domain:
-                # If domain_info was not provided, try to get it now
-                if domain_info is None:
-                    try:
-                        domain_info = self._analyze_domain_info(target_domain)
-                    except Exception as e:
-                        f.write(f"Error collecting domain info: {str(e)}\n\n")
-                
-                if domain_info:
-                    f.write("DOMAIN INFORMATION\n")
-                    f.write("-----------------\n\n")
-                    f.write(f"Domain: {target_domain}\n\n")
-                    
-                    # Registrant Information
-                    f.write("Registrant Information:\n")
-                    
-                    # Debug info - uncomment for troubleshooting
-                    # f.write(f"DEBUG - Registrant fields available: {', '.join([k for k, v in domain_info['registrant'].items() if v])}\n")
-                    
-                    for field, label in [
-                        ('name', 'Name'),
-                        ('organization', 'Organization'),
-                        ('email', 'Email'),
-                        ('phone', 'Phone'),
-                        ('fax', 'Fax'),
-                        ('street', 'Street'),
-                        ('city', 'City'),
-                        ('state', 'State/Province'),
-                        ('postal_code', 'Postal Code'),
-                        ('country', 'Country')
-                    ]:
-                        value = domain_info['registrant'].get(field)
-                        if value:
-                            f.write(f"  {label}: {value}\n")
-                    
-                    # If no registrant data found
-                    if not any(domain_info['registrant'].values()):
-                        f.write("  No registrant information available\n")
-                    
-                    f.write("\n")
-                    
-                    # Admin Information
-                    f.write("Admin Information:\n")
-                    
-                    for field, label in [
-                        ('name', 'Name'),
-                        ('organization', 'Organization'),
-                        ('email', 'Email'),
-                        ('phone', 'Phone'),
-                        ('fax', 'Fax'),
-                        ('street', 'Street'),
-                        ('city', 'City'),
-                        ('state', 'State/Province'),
-                        ('postal_code', 'Postal Code'),
-                        ('country', 'Country')
-                    ]:
-                        value = domain_info['admin'].get(field)
-                        if value:
-                            f.write(f"  {label}: {value}\n")
-                    
-                    # If no admin data found
-                    if not any(domain_info['admin'].values()):
-                        f.write("  No admin information available\n")
-                    
-                    f.write("\n")
-                    
-                    # Tech Information
-                    f.write("Tech Information:\n")
-                    
-                    for field, label in [
-                        ('name', 'Name'),
-                        ('organization', 'Organization'),
-                        ('email', 'Email'),
-                        ('phone', 'Phone'),
-                        ('fax', 'Fax'),
-                        ('street', 'Street'),
-                        ('city', 'City'),
-                        ('state', 'State/Province'),
-                        ('postal_code', 'Postal Code'),
-                        ('country', 'Country')
-                    ]:
-                        value = domain_info['tech'].get(field)
-                        if value:
-                            f.write(f"  {label}: {value}\n")
-                    
-                    # If no tech data found
-                    if not any(domain_info['tech'].values()):
-                        f.write("  No tech information available\n")
-                    
-                    f.write("\n")
-                    
-                    # General domain information
-                    f.write("Domain Details:\n")
-                    
-                    # Debug info - uncomment for troubleshooting
-                    # f.write(f"DEBUG - Domain fields available: {', '.join([k for k, v in domain_info.items() if v and not isinstance(v, dict)])}\n")
-                    
-                    if domain_info.get('registrar'):
-                        f.write(f"  Registrar: {domain_info['registrar']}\n")
-                    
-                    if domain_info.get('creation_date'):
-                        f.write(f"  Creation Date: {domain_info['creation_date']}\n")
-                    
-                    if domain_info.get('update_date'):
-                        f.write(f"  Updated Date: {domain_info['update_date']}\n")
-                    
-                    if domain_info.get('expiration_date'):
-                        f.write(f"  Expiration Date: {domain_info['expiration_date']}\n")
-                    
-                    # If no general domain details found
-                    if not any(domain_info.get(field) for field in ['registrar', 'creation_date', 'update_date', 'expiration_date']):
-                        f.write("  No domain details available\n")
-                    
-                    f.write("\n")
-                    
-                    # Domain Status
-                    if domain_info.get('domain_status'):
-                        f.write("Domain Status:\n")
-                        for status in domain_info['domain_status']:
-                            f.write(f"  - {status}\n")
-                        f.write("\n")
-                    
-                    # Name Servers
-                    if domain_info.get('name_servers'):
-                        f.write("Name Servers:\n")
-                        for ns in domain_info['name_servers']:
-                            f.write(f"  - {ns}\n")
-                        f.write("\n")
-                    
-                    # IP Address Information
-                    if domain_info.get('ip_addresses'):
-                        f.write("IP ADDRESS INFORMATION\n")
-                        f.write("---------------------\n\n")
-                        
-                        for ip in domain_info['ip_addresses']:
-                            f.write(f"{target_domain} -> {ip}\n")
-                            
-                            if ip in self.ip_info:
-                                ip_data = self.ip_info[ip]
-                                if ip_data.get('cidr'):
-                                    f.write(f"  IP CIDR: {ip_data['cidr']}\n")
-                                
-                                if ip_data.get('asn'):
-                                    f.write(f"  Origin AS: {ip_data['asn']}")
-                                    if ip_data.get('organization'):
-                                        f.write(f" ({ip_data['organization']})")
-                                    f.write("\n")
-                                
-                                if ip_data.get('country'):
-                                    f.write(f"  Country: {ip_data['country']}\n")
-                                
-                                if ip_data.get('reverse_dns'):
-                                    f.write(f"  Reverse DNS: {ip_data['reverse_dns']}\n")
-                            else:
-                                f.write("  No detailed IP information available\n")
-                            
-                            f.write("\n")
-                else:
-                    f.write("DOMAIN INFORMATION\n")
-                    f.write("-----------------\n\n")
-                    f.write(f"Domain: {target_domain}\n\n")
-                    f.write("No WHOIS information could be retrieved for this domain.\n\n")
-            
-            # Document Metadata
-            f.write("DOCUMENT METADATA INFORMATION\n")
-            f.write("---------------------------\n\n")
-            
-            if self.document_metadata:
-                for file_path, metadata in self.document_metadata.items():
-                    filename = os.path.basename(file_path)
-                    file_type = os.path.splitext(filename)[1].lower().replace('.', '')
-                    
-                    f.write(f"File Name: {filename}\n")
-                    f.write(f"File Type: {file_type}\n")
-                    f.write(f"File Size: {metadata['file_size']} bytes\n")
-                    
-                    if metadata.get('title'):
-                        f.write(f"Title: {metadata['title']}\n")
-                    
-                    if metadata.get('subject'):
-                        f.write(f"Subject: {metadata['subject']}\n")
-                    
-                    if metadata.get('authors'):
-                        f.write("Authors/Users:\n")
-                        for author in sorted(metadata['authors']):
-                            f.write(f"  - {author}\n")
-                    
-                    if metadata.get('creation_date'):
-                        f.write(f"Creation Date: {metadata['creation_date']}\n")
-                    
-                    if metadata.get('modification_date'):
-                        f.write(f"Modification Date: {metadata['modification_date']}\n")
-                    
-                    if metadata.get('software'):
-                        f.write("Software Used:\n")
-                        for sw in sorted(metadata['software']):
-                            f.write(f"  - {sw}\n")
-                    
-                    if metadata.get('found_emails'):
-                        f.write("Emails Found in Document:\n")
-                        for email in sorted(metadata['found_emails']):
-                            f.write(f"  - {email}\n")
-                    
-                    if metadata.get('found_urls'):
-                        f.write("URLs Found in Document:\n")
-                        for url in sorted(metadata['found_urls']):
-                            f.write(f"  - {url}\n")
-                    
-                    if metadata.get('found_paths'):
-                        f.write("Paths Found in Document:\n")
-                        for path in sorted(metadata['found_paths']):
-                            f.write(f"  - {path}\n")
-                    
-                    # Add GPS data if available
-                    if 'gps_data' in metadata and metadata['gps_data']:
-                        f.write("GPS Coordinates:\n")
-                        gps_data = metadata['gps_data']
-                        if 'lat' in gps_data:
-                            f.write(f"  Latitude: {gps_data['lat']}\n")
-                        if 'lon' in gps_data:
-                            f.write(f"  Longitude: {gps_data['lon']}\n")
-                        if 'alt' in gps_data:
-                            f.write(f"  Altitude: {gps_data['alt']}\n")
-                    
-                    # Add device info if available
-                    if 'device_info' in metadata and metadata['device_info']:
-                        f.write("Device Information:\n")
-                        device_info = metadata['device_info']
-                        for key, value in device_info.items():
-                            f.write(f"  {key}: {value}\n")
-                    
-                    # Output all metadata fields - FULL DETAILED LISTING
-                    f.write("\nAll Metadata Fields:\n")
-                    f.write("-" * 50 + "\n")
-                    
-                    if 'all_metadata' in metadata and metadata['all_metadata']:
-                        # Sort keys for better readability
-                        for key in sorted(metadata['all_metadata'].keys()):
-                            value = metadata['all_metadata'][key]
-                            if value is not None:
-                                # Format the value based on its type
-                                if isinstance(value, (list, dict)):
-                                    formatted_value = json.dumps(value)
-                                else:
-                                    formatted_value = str(value)
-                                f.write(f"  {key}: {formatted_value}\n")
-                    elif 'exiftool_metadata' in metadata and metadata['exiftool_metadata']:
-                        # Flatten the nested metadata structure for display
-                        flattened = self._flatten_metadata(metadata['exiftool_metadata'])
-                        for key in sorted(flattened.keys()):
-                            value = flattened[key]
-                            if value is not None:
-                                # Format the value based on its type
-                                if isinstance(value, (list, dict)):
-                                    formatted_value = json.dumps(value)
-                                else:
-                                    formatted_value = str(value)
-                                f.write(f"  {key}: {formatted_value}\n")
-                    else:
-                        f.write("  No detailed metadata available\n")
-                    
-                    f.write("\n" + "-"*50 + "\n\n")
-            else:
-                f.write("No document metadata found.\n\n")
+            logger.error(f"Error generating HTML report: {str(e)}")
+            # Print traceback for debugging
+            import traceback
+            logger.error(traceback.format_exc())
+            return []
 
     def _analyze_domain_info(self, domain):
         """Gather comprehensive information about a specific domain"""
@@ -1900,11 +1256,20 @@ class Sidikjari:
         self.ip_info[ip] = ip_data
         return ip_data
 
-    def _generate_html_report(self, report_path, target_domain):
-        """Generate a detailed HTML report"""
-        with open(report_path, 'w') as f:
-            # HTML header
-            f.write("""<!DOCTYPE html>
+    def _generate_html_report(self, report_path, target_domain, domain_info=None):
+        """Generate a detailed HTML report with all enhanced features"""
+        try:
+            # Group documents by file type
+            documents_by_type = {}
+            for file_path, metadata in self.document_metadata.items():
+                file_type = metadata['file_type']
+                if file_type not in documents_by_type:
+                    documents_by_type[file_type] = []
+                documents_by_type[file_type].append((file_path, metadata))
+            
+            with open(report_path, 'w') as f:
+                # HTML header
+                f.write("""<!DOCTYPE html>
     <html>
     <head>
         <title>Sidikjari Metadata Analysis Report</title>
@@ -1923,194 +1288,1212 @@ class Sidikjari:
             .metadata-table { font-size: 12px; }
             .key-column { width: 40%; font-weight: bold; }
             .value-column { width: 60%; word-break: break-word; }
+            .debug-info { margin: 20px; padding: 10px; background-color: #ffe0e0; border: 1px solid #ffcccc; display: none; }
+            
+            /* Collapsible section styles */
+            .collapsible {
+                background-color: #3498db;
+                color: white;
+                cursor: pointer;
+                padding: 12px;
+                width: 100%;
+                border: none;
+                text-align: left;
+                outline: none;
+                font-size: 16px;
+                font-weight: bold;
+                border-radius: 5px 5px 0 0;
+                margin-top: 20px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .active, .collapsible:hover {
+                background-color: #2980b9;
+            }
+            .document-type-content {
+                padding: 0 18px;
+                max-height: 0;
+                overflow: hidden;
+                transition: max-height 0.3s ease-out;
+                background-color: #f9f9f9;
+                border-radius: 0 0 5px 5px;
+                border: 1px solid #ddd;
+                border-top: none;
+            }
+            .document-count {
+                background-color: white;
+                color: #3498db;
+                border-radius: 50%;
+                padding: 2px 8px;
+                font-size: 14px;
+            }
+            /* CSS for toggle icon */
+            .collapsible:after {
+                content: '\\02795'; /* Unicode character for "plus" sign (+) */
+                font-size: 13px;
+                color: white;
+                margin-left: 5px;
+            }
+            .active:after {
+                content: "\\2796"; /* Unicode character for "minus" sign (-) */
+            }
         </style>
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                var coll = document.getElementsByClassName("collapsible");
+                for (var i = 0; i < coll.length; i++) {
+                    coll[i].addEventListener("click", function() {
+                        this.classList.toggle("active");
+                        var content = this.nextElementSibling;
+                        if (content.style.maxHeight) {
+                            content.style.maxHeight = null;
+                        } else {
+                            content.style.maxHeight = content.scrollHeight + "px";
+                        }
+                    });
+                }
+                
+                // Expand the first section by default
+                if (coll.length > 0) {
+                    coll[0].click();
+                }
+            });
+        </script>
     </head>
     <body>
         <div class="container">
             <h1>Sidikjari Metadata Analysis Report</h1>
     """)
     
-            # Target information
-            f.write(f"<p><strong>Target:</strong> {self.target_url if self.target_url else self.input_dir}</p>")
-            
-            # Domain Information section
-            if target_domain:
-                # Try to get domain information
-                domain_info = self._analyze_domain_info(target_domain)
+                # Target information
+                f.write(f"<p><strong>Target:</strong> {self.target_url if self.target_url else self.input_dir}</p>")
                 
-                if domain_info:
-                    f.write("<div class='section'>")
-                    f.write("<h2>DOMAIN INFORMATION</h2>")
-                    f.write(f"<p><strong>Domain:</strong> {target_domain}</p>")
+                # Website Screenshot section (if applicable)
+                if self.target_url:
+                    self._generate_screenshot_section(f, self.target_url)
+                
+                # Domain Information
+                if target_domain:
+                    # If domain_info was not provided, try to get it now
+                    if domain_info is None:
+                        try:
+                            domain_info = self._analyze_domain_info(target_domain)
+                        except Exception as e:
+                            f.write(f"<div class='debug-info'>Error collecting domain info: {str(e)}</div>")
                     
-                    # Registrant Information
-                    f.write("<h3>Registrant Information</h3>")
-                    f.write("<table>")
-                    if domain_info['registrant']['name']:
-                        f.write(f"<tr><td>Name</td><td>{domain_info['registrant']['name']}</td></tr>")
-                    if domain_info['registrant']['organization']:
-                        f.write(f"<tr><td>Organization</td><td>{domain_info['registrant']['organization']}</td></tr>")
-                    if domain_info['registrant']['email']:
-                        f.write(f"<tr><td>Email</td><td>{domain_info['registrant']['email']}</td></tr>")
-                    if domain_info['registrant']['phone']:
-                        f.write(f"<tr><td>Phone</td><td>{domain_info['registrant']['phone']}</td></tr>")
-                    if domain_info['registrant']['fax']:
-                        f.write(f"<tr><td>Fax</td><td>{domain_info['registrant']['fax']}</td></tr>")
-                    if domain_info['registrant']['street']:
-                        f.write(f"<tr><td>Street</td><td>{domain_info['registrant']['street']}</td></tr>")
-                    if domain_info['registrant']['city']:
-                        f.write(f"<tr><td>City</td><td>{domain_info['registrant']['city']}</td></tr>")
-                    if domain_info['registrant']['state']:
-                        f.write(f"<tr><td>State/Province</td><td>{domain_info['registrant']['state']}</td></tr>")
-                    if domain_info['registrant']['postal_code']:
-                        f.write(f"<tr><td>Postal Code</td><td>{domain_info['registrant']['postal_code']}</td></tr>")
-                    if domain_info['registrant']['country']:
-                        f.write(f"<tr><td>Country</td><td>{domain_info['registrant']['country']}</td></tr>")
-                    
-                    # If no registrant data was found, display a message
-                    if not any([domain_info['registrant'][field] for field in domain_info['registrant']]):
-                        f.write("<tr><td colspan='2'>No registrant information available</td></tr>")
-                    
-                    f.write("</table>")
-                    
-                    # Admin Information
-                    f.write("<h3>Admin Information</h3>")
-                    f.write("<table>")
-                    if domain_info['admin']['name']:
-                        f.write(f"<tr><td>Name</td><td>{domain_info['admin']['name']}</td></tr>")
-                    if domain_info['admin']['organization']:
-                        f.write(f"<tr><td>Organization</td><td>{domain_info['admin']['organization']}</td></tr>")
-                    if domain_info['admin']['email']:
-                        f.write(f"<tr><td>Email</td><td>{domain_info['admin']['email']}</td></tr>")
-                    if domain_info['admin']['phone']:
-                        f.write(f"<tr><td>Phone</td><td>{domain_info['admin']['phone']}</td></tr>")
-                    if domain_info['admin']['fax']:
-                        f.write(f"<tr><td>Fax</td><td>{domain_info['admin']['fax']}</td></tr>")
-                    if domain_info['admin']['street']:
-                        f.write(f"<tr><td>Street</td><td>{domain_info['admin']['street']}</td></tr>")
-                    if domain_info['admin']['city']:
-                        f.write(f"<tr><td>City</td><td>{domain_info['admin']['city']}</td></tr>")
-                    if domain_info['admin']['state']:
-                        f.write(f"<tr><td>State/Province</td><td>{domain_info['admin']['state']}</td></tr>")
-                    if domain_info['admin']['postal_code']:
-                        f.write(f"<tr><td>Postal Code</td><td>{domain_info['admin']['postal_code']}</td></tr>")
-                    if domain_info['admin']['country']:
-                        f.write(f"<tr><td>Country</td><td>{domain_info['admin']['country']}</td></tr>")
-                    
-                    # If no admin data was found, display a message
-                    if not any([domain_info['admin'][field] for field in domain_info['admin']]):
-                        f.write("<tr><td colspan='2'>No admin information available</td></tr>")
-                    
-                    f.write("</table>")
-                    
-                    # Tech Information
-                    f.write("<h3>Tech Information</h3>")
-                    f.write("<table>")
-                    if domain_info['tech']['name']:
-                        f.write(f"<tr><td>Name</td><td>{domain_info['tech']['name']}</td></tr>")
-                    if domain_info['tech']['organization']:
-                        f.write(f"<tr><td>Organization</td><td>{domain_info['tech']['organization']}</td></tr>")
-                    if domain_info['tech']['email']:
-                        f.write(f"<tr><td>Email</td><td>{domain_info['tech']['email']}</td></tr>")
-                    if domain_info['tech']['phone']:
-                        f.write(f"<tr><td>Phone</td><td>{domain_info['tech']['phone']}</td></tr>")
-                    if domain_info['tech']['fax']:
-                        f.write(f"<tr><td>Fax</td><td>{domain_info['tech']['fax']}</td></tr>")
-                    if domain_info['tech']['street']:
-                        f.write(f"<tr><td>Street</td><td>{domain_info['tech']['street']}</td></tr>")
-                    if domain_info['tech']['city']:
-                        f.write(f"<tr><td>City</td><td>{domain_info['tech']['city']}</td></tr>")
-                    if domain_info['tech']['state']:
-                        f.write(f"<tr><td>State/Province</td><td>{domain_info['tech']['state']}</td></tr>")
-                    if domain_info['tech']['postal_code']:
-                        f.write(f"<tr><td>Postal Code</td><td>{domain_info['tech']['postal_code']}</td></tr>")
-                    if domain_info['tech']['country']:
-                        f.write(f"<tr><td>Country</td><td>{domain_info['tech']['country']}</td></tr>")
-                    
-                    # If no tech data was found, display a message
-                    if not any([domain_info['tech'][field] for field in domain_info['tech']]):
-                        f.write("<tr><td colspan='2'>No tech information available</td></tr>")
-                    
-                    f.write("</table>")
-                    
-                    # General domain information
-                    f.write("<h3>Domain Details</h3>")
-                    f.write("<table>")
-                    if domain_info['registrar']:
-                        f.write(f"<tr><td>Registrar</td><td>{domain_info['registrar']}</td></tr>")
-                    if domain_info['creation_date']:
-                        f.write(f"<tr><td>Creation Date</td><td>{domain_info['creation_date']}</td></tr>")
-                    if domain_info['update_date']:
-                        f.write(f"<tr><td>Updated Date</td><td>{domain_info['update_date']}</td></tr>")
-                    if domain_info['expiration_date']:
-                        f.write(f"<tr><td>Expiration Date</td><td>{domain_info['expiration_date']}</td></tr>")
-                    
-                    # If no domain details were found, display a message
-                    if not any([domain_info[field] for field in ['registrar', 'creation_date', 'update_date', 'expiration_date']]):
-                        f.write("<tr><td colspan='2'>No domain details available</td></tr>")
-                    
-                    f.write("</table>")
-                    
-                    if domain_info['domain_status']:
-                        f.write("<h3>Domain Status</h3>")
-                        f.write("<ul>")
-                        for status in domain_info['domain_status']:
-                            f.write(f"<li>{status}</li>")
-                        f.write("</ul>")
-                    
-                    if domain_info['name_servers']:
-                        f.write("<h3>Name Servers</h3>")
-                        f.write("<ul>")
-                        for ns in domain_info['name_servers']:
-                            f.write(f"<li>{ns}</li>")
-                        f.write("</ul>")
-                    
-                    f.write("</div>")
-                    
-                    # IP Address Information
-                    if domain_info['ip_addresses']:
+                    if domain_info:
                         f.write("<div class='section'>")
-                        f.write("<h2>IP ADDRESS INFORMATION</h2>")
+                        f.write("<h2>DOMAIN INFORMATION</h2>")
+                        f.write(f"<p><strong>Domain:</strong> {target_domain}</p>")
                         
-                        for ip in domain_info['ip_addresses']:
-                            f.write(f"<h3>{target_domain} -> {ip}</h3>")
-                            
-                            f.write("<table>")
-                            if ip in self.ip_info:
-                                ip_data = self.ip_info[ip]
-                                if ip_data['cidr']:
-                                    f.write(f"<tr><td>IP CIDR</td><td>{ip_data['cidr']}</td></tr>")
-                                
-                                if ip_data['asn']:
-                                    asn_info = f"{ip_data['asn']}"
-                                    if ip_data['organization']:
-                                        asn_info += f" ({ip_data['organization']})"
-                                    f.write(f"<tr><td>Origin AS</td><td>{asn_info}</td></tr>")
-                                
-                                if ip_data['country']:
-                                    f.write(f"<tr><td>Country</td><td>{ip_data['country']}</td></tr>")
-                                
-                                if ip_data['reverse_dns']:
-                                    f.write(f"<tr><td>Reverse DNS</td><td>{ip_data['reverse_dns']}</td></tr>")
-                            else:
-                                f.write("<tr><td colspan='2'>No detailed IP information available</td></tr>")
-                            f.write("</table>")
+                        # Registrant Information
+                        f.write("<h3>Registrant Information</h3>")
+                        
+                        # Debug info - uncomment by changing display:none to display:block in CSS
+                        f.write("<div class='debug-info'>")
+                        f.write("<strong>Debug:</strong> Registrant fields available: ")
+                        f.write(", ".join([k for k, v in domain_info['registrant'].items() if v]))
+                        f.write("</div>")
+                        
+                        f.write("<table>")
+                        
+                        for field, label in [
+                            ('name', 'Name'),
+                            ('organization', 'Organization'),
+                            ('email', 'Email'),
+                            ('phone', 'Phone'),
+                            ('fax', 'Fax'),
+                            ('street', 'Street'),
+                            ('city', 'City'),
+                            ('state', 'State/Province'),
+                            ('postal_code', 'Postal Code'),
+                            ('country', 'Country')
+                        ]:
+                            value = domain_info['registrant'].get(field)
+                            if value:
+                                f.write(f"<tr><td>{label}</td><td>{value}</td></tr>")
+                        
+                        # If no registrant data was found, display a message
+                        if not any(domain_info['registrant'].values()):
+                            f.write("<tr><td colspan='2'>No registrant information available</td></tr>")
+                        
+                        f.write("</table>")
+                        
+                        # Admin Information
+                        f.write("<h3>Admin Information</h3>")
+                        f.write("<table>")
+                        
+                        for field, label in [
+                            ('name', 'Name'),
+                            ('organization', 'Organization'),
+                            ('email', 'Email'),
+                            ('phone', 'Phone'),
+                            ('fax', 'Fax'),
+                            ('street', 'Street'),
+                            ('city', 'City'),
+                            ('state', 'State/Province'),
+                            ('postal_code', 'Postal Code'),
+                            ('country', 'Country')
+                        ]:
+                            value = domain_info['admin'].get(field)
+                            if value:
+                                f.write(f"<tr><td>{label}</td><td>{value}</td></tr>")
+                        
+                        # If no admin data was found, display a message
+                        if not any(domain_info['admin'].values()):
+                            f.write("<tr><td colspan='2'>No admin information available</td></tr>")
+                        
+                        f.write("</table>")
+                        
+                        # Tech Information
+                        f.write("<h3>Tech Information</h3>")
+                        f.write("<table>")
+                        
+                        for field, label in [
+                            ('name', 'Name'),
+                            ('organization', 'Organization'),
+                            ('email', 'Email'),
+                            ('phone', 'Phone'),
+                            ('fax', 'Fax'),
+                            ('street', 'Street'),
+                            ('city', 'City'),
+                            ('state', 'State/Province'),
+                            ('postal_code', 'Postal Code'),
+                            ('country', 'Country')
+                        ]:
+                            value = domain_info['tech'].get(field)
+                            if value:
+                                f.write(f"<tr><td>{label}</td><td>{value}</td></tr>")
+                        
+                        # If no tech data was found, display a message
+                        if not any(domain_info['tech'].values()):
+                            f.write("<tr><td colspan='2'>No tech information available</td></tr>")
+                        
+                        f.write("</table>")
+                        
+                        # General domain information
+                        f.write("<h3>Domain Details</h3>")
+                        
+                        # Debug info - uncomment by changing display:none to display:block in CSS
+                        f.write("<div class='debug-info'>")
+                        f.write("<strong>Debug:</strong> Domain fields available: ")
+                        f.write(", ".join([k for k, v in domain_info.items() if v and not isinstance(v, dict)]))
+                        f.write("</div>")
+                        
+                        f.write("<table>")
+                        
+                        if domain_info.get('registrar'):
+                            f.write(f"<tr><td>Registrar</td><td>{domain_info['registrar']}</td></tr>")
+                        
+                        if domain_info.get('creation_date'):
+                            f.write(f"<tr><td>Creation Date</td><td>{domain_info['creation_date']}</td></tr>")
+                        
+                        if domain_info.get('update_date'):
+                            f.write(f"<tr><td>Updated Date</td><td>{domain_info['update_date']}</td></tr>")
+                        
+                        if domain_info.get('expiration_date'):
+                            f.write(f"<tr><td>Expiration Date</td><td>{domain_info['expiration_date']}</td></tr>")
+                        
+                        # If no domain details were found, display a message
+                        if not any(domain_info.get(field) for field in ['registrar', 'creation_date', 'update_date', 'expiration_date']):
+                            f.write("<tr><td colspan='2'>No domain details available</td></tr>")
+                        
+                        f.write("</table>")
+                        
+                        # Domain Status
+                        if domain_info.get('domain_status'):
+                            f.write("<h3>Domain Status</h3>")
+                            f.write("<ul>")
+                            for status in domain_info['domain_status']:
+                                f.write(f"<li>{status}</li>")
+                            f.write("</ul>")
+                        
+                        # Name Servers
+                        if domain_info.get('name_servers'):
+                            f.write("<h3>Name Servers</h3>")
+                            f.write("<ul>")
+                            for ns in domain_info['name_servers']:
+                                f.write(f"<li>{ns}</li>")
+                            f.write("</ul>")
                         
                         f.write("</div>")
-    
-            # Continue with the rest of the report...
-            # Document Metadata Section and other sections
-            # ...
-    
-            # Footer
-            f.write("""
-            <div class="footer">
-                <p>Report generated by Sidikjari - Metadata Extraction Tool</p>
-                <p>Red Cell Security, LLC - www.redcellsecurity.org</p>
+                        
+                        # SSL Certificate Information (right after domain info)
+                        if self.target_url:
+                            self._generate_ssl_certificate_section(f, self.target_url, domain_info)
+                        
+                        # IP Address Information
+                        if domain_info.get('ip_addresses'):
+                            f.write("<div class='section'>")
+                            f.write("<h2>IP ADDRESS INFORMATION</h2>")
+                            
+                            for ip in domain_info['ip_addresses']:
+                                f.write(f"<h3>{target_domain} -> {ip}</h3>")
+                                
+                                f.write("<table>")
+                                if ip in self.ip_info:
+                                    ip_data = self.ip_info[ip]
+                                    if ip_data.get('cidr'):
+                                        f.write(f"<tr><td>IP CIDR</td><td>{ip_data['cidr']}</td></tr>")
+                                    
+                                    if ip_data.get('asn'):
+                                        asn_info = f"{ip_data['asn']}"
+                                        if ip_data.get('organization'):
+                                            asn_info += f" ({ip_data['organization']})"
+                                        f.write(f"<tr><td>Origin AS</td><td>{asn_info}</td></tr>")
+                                    
+                                    if ip_data.get('country'):
+                                        f.write(f"<tr><td>Country</td><td>{ip_data['country']}</td></tr>")
+                                    
+                                    if ip_data.get('reverse_dns'):
+                                        f.write(f"<tr><td>Reverse DNS</td><td>{ip_data['reverse_dns']}</td></tr>")
+                                else:
+                                    f.write("<tr><td colspan='2'>No detailed IP information available</td></tr>")
+                                f.write("</table>")
+                            
+                            f.write("</div>")
+                    else:
+                        f.write("<div class='section'>")
+                        f.write("<h2>DOMAIN INFORMATION</h2>")
+                        f.write(f"<p><strong>Domain:</strong> {target_domain}</p>")
+                        f.write("<p>No WHOIS information could be retrieved for this domain.</p>")
+                        f.write("</div>")
+                
+                # GPS Map section (if there are documents with GPS data)
+                self._generate_gps_map_section(f)
+                
+                # Relationship Graph
+                self._generate_relationship_graph(f)
+                
+                # Document Metadata section - now with collapsible sections by file type
+                f.write("<div class='section'>")
+                f.write("<h2>DOCUMENT METADATA INFORMATION</h2>")
+                
+                if self.document_metadata:
+                    # Organize file types in a preferred order with friendly names
+                    file_type_names = {
+                        'pdf': 'PDF Documents',
+                        'docx': 'Word Documents',
+                        'xlsx': 'Excel Spreadsheets',
+                        'pptx': 'PowerPoint Presentations',
+                        'jpg': 'JPEG Images',
+                        'jpeg': 'JPEG Images',
+                        'png': 'PNG Images',
+                        'gif': 'GIF Images',
+                        'csv': 'CSV Files'
+                    }
+                    
+                    # Sort file types by count (most documents first) and then alphabetically
+                    sorted_file_types = sorted(
+                        documents_by_type.keys(),
+                        key=lambda x: (-len(documents_by_type[x]), x)
+                    )
+                    
+                    # Create collapsible section for each file type
+                    for file_type in sorted_file_types:
+                        documents = documents_by_type[file_type]
+                        display_name = file_type_names.get(file_type, f"{file_type.upper()} Files")
+                        
+                        # Create collapsible button for this document type
+                        f.write(f'<button class="collapsible">{display_name} <span class="document-count">{len(documents)}</span></button>')
+                        f.write(f'<div class="document-type-content">')
+                        
+                        # Write all documents of this type
+                        for file_path, metadata in documents:
+                            filename = os.path.basename(file_path)
+                            
+                            f.write(f"<div class='metadata-item'>")
+                            f.write(f"<h3>{filename}</h3>")
+                            f.write("<table>")
+                            f.write(f"<tr><td>File Size</td><td>{metadata['file_size']} bytes</td></tr>")
+                            
+                            if metadata.get('title'):
+                                f.write(f"<tr><td>Title</td><td>{metadata['title']}</td></tr>")
+                            
+                            if metadata.get('subject'):
+                                f.write(f"<tr><td>Subject</td><td>{metadata['subject']}</td></tr>")
+                            
+                            if metadata.get('creation_date'):
+                                f.write(f"<tr><td>Creation Date</td><td>{metadata['creation_date']}</td></tr>")
+                            
+                            if metadata.get('modification_date'):
+                                f.write(f"<tr><td>Modification Date</td><td>{metadata['modification_date']}</td></tr>")
+                            f.write("</table>")
+                            
+                            if metadata.get('authors'):
+                                f.write("<h4>Authors/Users</h4>")
+                                f.write("<ul>")
+                                for author in sorted(metadata['authors']):
+                                    f.write(f"<li>{author}</li>")
+                                f.write("</ul>")
+                            
+                            if metadata.get('software'):
+                                f.write("<h4>Software Used</h4>")
+                                f.write("<ul>")
+                                for sw in sorted(metadata['software']):
+                                    f.write(f"<li>{sw}</li>")
+                                f.write("</ul>")
+                            
+                            if metadata.get('found_emails'):
+                                f.write("<h4>Emails Found in Document</h4>")
+                                f.write("<ul>")
+                                for email in sorted(metadata['found_emails']):
+                                    f.write(f"<li>{email}</li>")
+                                f.write("</ul>")
+                            
+                            if metadata.get('found_urls'):
+                                f.write("<h4>URLs Found in Document</h4>")
+                                f.write("<ul>")
+                                for url in sorted(metadata['found_urls']):
+                                    f.write(f"<li>{url}</li>")
+                                f.write("</ul>")
+                            
+                            if metadata.get('found_paths'):
+                                f.write("<h4>Paths Found in Document</h4>")
+                                f.write("<ul>")
+                                for path in sorted(metadata['found_paths']):
+                                    f.write(f"<li>{path}</li>")
+                                f.write("</ul>")
+                            
+                            # GPS data
+                            if 'gps_data' in metadata and metadata['gps_data']:
+                                f.write("<h4>GPS Coordinates</h4>")
+                                f.write("<table>")
+                                gps_data = metadata['gps_data']
+                                if 'lat' in gps_data:
+                                    f.write(f"<tr><td>Latitude</td><td>{gps_data['lat']}</td></tr>")
+                                if 'lon' in gps_data:
+                                    f.write(f"<tr><td>Longitude</td><td>{gps_data['lon']}</td></tr>")
+                                if 'alt' in gps_data:
+                                    f.write(f"<tr><td>Altitude</td><td>{gps_data['alt']}</td></tr>")
+                                f.write("</table>")
+                            
+                            # Device info
+                            if 'device_info' in metadata and metadata['device_info']:
+                                f.write("<h4>Device Information</h4>")
+                                f.write("<table>")
+                                for key, value in metadata['device_info'].items():
+                                    f.write(f"<tr><td>{key}</td><td>{value}</td></tr>")
+                                f.write("</table>")
+                            
+                            # All Metadata Fields - FULL DETAILED LISTING
+                            f.write("<h4>All Metadata Fields</h4>")
+                            f.write("<table class='metadata-table'>")
+                            f.write("<tr><th class='key-column'>Field</th><th class='value-column'>Value</th></tr>")
+                            
+                            if 'all_metadata' in metadata and metadata['all_metadata']:
+                                # Sort keys for better readability
+                                for key in sorted(metadata['all_metadata'].keys()):
+                                    value = metadata['all_metadata'][key]
+                                    if value is not None:
+                                        # Format the value based on its type
+                                        if isinstance(value, (list, dict)):
+                                            formatted_value = json.dumps(value)
+                                        else:
+                                            formatted_value = str(value)
+                                        f.write(f"<tr><td class='key-column'>{key}</td><td class='value-column'>{formatted_value}</td></tr>")
+                            elif 'exiftool_metadata' in metadata and metadata['exiftool_metadata']:
+                                # Flatten the nested metadata structure for display
+                                flattened = self._flatten_metadata(metadata['exiftool_metadata'])
+                                for key in sorted(flattened.keys()):
+                                    value = flattened[key]
+                                    if value is not None:
+                                        # Format the value based on its type
+                                        if isinstance(value, (list, dict)):
+                                            formatted_value = json.dumps(value)
+                                        else:
+                                            formatted_value = str(value)
+                                        f.write(f"<tr><td class='key-column'>{key}</td><td class='value-column'>{formatted_value}</td></tr>")
+                            else:
+                                f.write("<tr><td colspan='2'>No detailed metadata available</td></tr>")
+                            
+                            f.write("</table>")
+                            f.write("</div>") # End of metadata item
+                        
+                        f.write("</div>") # End of collapsible content
+                else:
+                    f.write("<p>No document metadata found.</p>")
+                
+                f.write("</div>") # End of section
+                
+                # Footer
+                f.write("""
+                <div class="footer">
+                    <p>Report generated by Sidikjari - Metadata Extraction Tool</p>
+                    <p>Red Cell Security, LLC - www.redcellsecurity.org</p>
+                </div>
             </div>
+        </body>
+        </html>""")
+        except Exception as e:
+            logger.error(f"Error generating HTML report: {str(e)}")
+            # Print traceback for debugging
+            import traceback
+            logger.error(traceback.format_exc())
+
+    def _get_ssl_certificate_info(self, target_url):
+        """Get SSL certificate information for a domain"""
+        try:
+            # Ensure target URL has a scheme
+            if not target_url.startswith(('http://', 'https://')):
+                target_url = f'https://{target_url}'
+            
+            parsed_url = urlparse(target_url)
+            hostname = parsed_url.netloc
+            
+            # Remove port if present
+            if ':' in hostname:
+                hostname = hostname.split(':')[0]
+            
+            logger.info(f"Getting SSL certificate information for {hostname}")
+            
+            # Create a connection to get the certificate
+            import ssl
+            import socket
+            import datetime
+            
+            context = ssl.create_default_context()
+            with socket.create_connection((hostname, 443)) as sock:
+                with context.wrap_socket(sock, server_hostname=hostname) as ssock:
+                    cert = ssock.getpeercert()
+            
+            # Process certificate information
+            cert_info = {
+                'subject': dict(x[0] for x in cert['subject']),
+                'issuer': dict(x[0] for x in cert['issuer']),
+                'version': cert['version'],
+                'serialNumber': cert.get('serialNumber', 'N/A'),
+                'notBefore': cert['notBefore'],
+                'notAfter': cert['notAfter'],
+                'subjectAltName': cert.get('subjectAltName', []),
+                'OCSP': cert.get('OCSP', 'N/A'),
+                'caIssuers': cert.get('caIssuers', 'N/A'),
+                'crlDistributionPoints': cert.get('crlDistributionPoints', 'N/A')
+            }
+            
+            # Format subject and issuer info
+            cert_info['subject_str'] = ', '.join(f"{k}={v}" for k, v in cert_info['subject'].items())
+            cert_info['issuer_str'] = ', '.join(f"{k}={v}" for k, v in cert_info['issuer'].items())
+            
+            # Format dates
+            def parse_cert_date(date_str):
+                return datetime.datetime.strptime(date_str, '%b %d %H:%M:%S %Y %Z')
+            
+            not_before = parse_cert_date(cert_info['notBefore'])
+            not_after = parse_cert_date(cert_info['notAfter'])
+            cert_info['valid_from'] = not_before.strftime('%Y-%m-%d %H:%M:%S')
+            cert_info['valid_until'] = not_after.strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Calculate validity period
+            now = datetime.datetime.now()
+            cert_info['is_valid'] = now >= not_before and now <= not_after
+            cert_info['days_remaining'] = (not_after - now).days
+            
+            # Extract alternative names
+            cert_info['alt_names'] = []
+            for type_name, value in cert_info['subjectAltName']:
+                if type_name == 'DNS':
+                    cert_info['alt_names'].append(value)
+            
+            # Get certificate algorithm information
+            if hasattr(ssock, 'cipher'):
+                cipher = ssock.cipher()
+                if cipher:
+                    cert_info['cipher'] = cipher[0]
+                    cert_info['protocol'] = cipher[1]
+                    cert_info['secret_bits'] = cipher[2]
+            
+            # Check for certificate extensions
+            cert_info['extensions'] = {}
+            for oid, value in cert.get('extensions', []):
+                cert_info['extensions'][oid] = value
+            
+            # Evaluate certificate strength
+            # Initialize as secure, downgrade based on findings
+            cert_info['security_assessment'] = 'Strong'
+            cert_info['security_issues'] = []
+            
+            # Check expiration
+            if cert_info['days_remaining'] < 30:
+                cert_info['security_assessment'] = 'Warning'
+                cert_info['security_issues'].append(f'Certificate expires soon ({cert_info["days_remaining"]} days remaining)')
+            
+            # Check if certificate is self-signed
+            if cert_info['subject_str'] == cert_info['issuer_str']:
+                cert_info['security_assessment'] = 'Weak'
+                cert_info['security_issues'].append('Self-signed certificate')
+            
+            # Check for weak ciphers or protocols
+            weak_protocols = ['SSLv2', 'SSLv3', 'TLSv1', 'TLSv1.1']
+            if 'protocol' in cert_info and any(wp in cert_info['protocol'] for wp in weak_protocols):
+                cert_info['security_assessment'] = 'Weak'
+                cert_info['security_issues'].append(f'Weak protocol: {cert_info["protocol"]}')
+            
+            logger.info(f"Successfully retrieved SSL certificate information for {hostname}")
+            return cert_info
+        
+        except Exception as e:
+            logger.error(f"Error retrieving SSL certificate for {target_url}: {str(e)}")
+            # Print traceback for debugging
+            import traceback
+            logger.error(traceback.format_exc())
+            return None
+
+    def _generate_ssl_certificate_section(self, f, target_url, domain_info):
+        """Generate a section with SSL certificate information in the HTML report"""
+        try:
+            # Get SSL certificate information
+            cert_info = self._get_ssl_certificate_info(target_url)
+            
+            if not cert_info:
+                return
+            
+            # Create SSL certificate section
+            f.write("<div class='section'>")
+            f.write("<h2>SSL CERTIFICATE INFORMATION</h2>")
+            
+            # Security assessment badge
+            security_color = {
+                'Strong': '#48BB78',  # Green
+                'Warning': '#ECC94B',  # Yellow
+                'Weak': '#F56565'     # Red
+            }
+            
+            f.write(f"""
+            <div style="margin-bottom: 20px;">
+                <div style="display: inline-block; padding: 8px 16px; background-color: {security_color.get(cert_info['security_assessment'], '#718096')}; 
+                     color: white; border-radius: 20px; font-weight: bold;">
+                    Certificate Security: {cert_info['security_assessment']}
+                </div>
+            </div>
+            """)
+            
+            # Certificate summary
+            f.write("<table>")
+            f.write(f"<tr><td width='180'><strong>Common Name</strong></td><td>{cert_info['subject'].get('commonName', 'N/A')}</td></tr>")
+            f.write(f"<tr><td><strong>Issuer</strong></td><td>{cert_info['issuer'].get('organizationName', 'N/A')} {cert_info['issuer'].get('commonName', '')}</td></tr>")
+            f.write(f"<tr><td><strong>Valid From</strong></td><td>{cert_info['valid_from']}</td></tr>")
+            f.write(f"<tr><td><strong>Valid Until</strong></td><td>{cert_info['valid_until']} ({cert_info['days_remaining']} days remaining)</td></tr>")
+            
+            # Display protocol and cipher if available
+            if 'protocol' in cert_info:
+                f.write(f"<tr><td><strong>Protocol</strong></td><td>{cert_info['protocol']}</td></tr>")
+            
+            if 'cipher' in cert_info:
+                f.write(f"<tr><td><strong>Cipher</strong></td><td>{cert_info['cipher']}</td></tr>")
+            
+            f.write("</table>")
+            
+            # Security issues if any
+            if cert_info['security_issues']:
+                f.write("<h3>Security Issues</h3>")
+                f.write("<ul>")
+                for issue in cert_info['security_issues']:
+                    f.write(f"<li>{issue}</li>")
+                f.write("</ul>")
+            
+            # Alternative names (SAN)
+            if cert_info['alt_names']:
+                f.write("<h3>Subject Alternative Names</h3>")
+                f.write("<div style='max-height: 200px; overflow-y: auto; margin-bottom: 20px; padding: 10px; background-color: #f9f9f9; border-radius: 5px;'>")
+                
+                # Display in columns for better readability if many names
+                if len(cert_info['alt_names']) > 5:
+                    f.write("<div style='column-count: 2; column-gap: 20px;'>")
+                else:
+                    f.write("<div>")
+                
+                for name in cert_info['alt_names']:
+                    f.write(f"<div style='margin-bottom: 5px;'>{name}</div>")
+                
+                f.write("</div></div>")
+            
+            # Certificate details (collapsible)
+            f.write("""
+            <button class="collapsible">View Full Certificate Details</button>
+            <div class="document-type-content">
+                <table class="metadata-table">
+                    <tr><th class="key-column">Field</th><th class="value-column">Value</th></tr>
+            """)
+            
+            # Display all certificate fields
+            flattened_cert = self._flatten_metadata(cert_info)
+            for key in sorted(flattened_cert.keys()):
+                if key not in ['security_issues', 'alt_names']:  # Skip arrays already displayed
+                    value = flattened_cert[key]
+                    if value is not None:
+                        # Format the value based on its type
+                        if isinstance(value, (list, dict)):
+                            formatted_value = json.dumps(value)
+                        else:
+                            formatted_value = str(value)
+                        f.write(f"<tr><td class='key-column'>{key}</td><td class='value-column'>{formatted_value}</td></tr>")
+            
+            f.write("</table></div>")
+            
+            f.write("</div>")  # End of section
+            
+        except Exception as e:
+            logger.error(f"Error generating SSL certificate section: {str(e)}")
+            # Print traceback for debugging
+            import traceback
+            logger.error(traceback.format_exc())
+
+    def _capture_website_screenshot(self, target_url):
+        """Capture a screenshot of the target website's landing page"""
+        try:
+            # Create a directory for screenshots if it doesn't exist
+            screenshots_dir = os.path.join(self.output_dir, "screenshots")
+            os.makedirs(screenshots_dir, exist_ok=True)
+            
+            # Generate a filename for the screenshot
+            domain = urlparse(target_url).netloc
+            if not domain:
+                domain = "website"
+            screenshot_path = os.path.join(screenshots_dir, f"{domain}_screenshot.png")
+            
+            logger.info(f"Capturing screenshot of {target_url}")
+            
+            # Check for required libraries
+            try:
+                from selenium import webdriver
+                from selenium.webdriver.chrome.options import Options
+                from selenium.webdriver.chrome.service import Service
+                from webdriver_manager.chrome import ChromeDriverManager
+            except ImportError:
+                logger.error("Screenshot functionality requires Selenium and webdriver-manager libraries.")
+                logger.error("Please install with: pip install selenium webdriver-manager")
+                return None
+            
+            # Configure Chrome options for headless operation
+            chrome_options = Options()
+            chrome_options.add_argument("--headless")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--window-size=1920,1080")
+            
+            # Try to find Chrome binary explicitly
+            chrome_binary = None
+            possible_paths = [
+                # Linux paths
+                "/usr/bin/google-chrome",
+                "/usr/bin/chromium-browser",
+                "/usr/bin/chromium",
+                # MacOS path
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                # Windows paths
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            ]
+            
+            for path in possible_paths:
+                if os.path.exists(path):
+                    chrome_binary = path
+                    logger.info(f"Found Chrome binary at {chrome_binary}")
+                    break
+            
+            if chrome_binary:
+                chrome_options.binary_location = chrome_binary
+            
+            try:
+                # Initialize the Chrome driver
+                driver = webdriver.Chrome(
+                    service=Service(ChromeDriverManager().install()),
+                    options=chrome_options
+                )
+                
+                # Navigate to the URL
+                driver.get(target_url)
+                
+                # Give the page time to load (adjust as needed)
+                time.sleep(3)
+                
+                # Take screenshot
+                driver.save_screenshot(screenshot_path)
+                
+                # Close the browser
+                driver.quit()
+                
+                logger.info(f"Screenshot saved to {screenshot_path}")
+                
+                # Return the path to the screenshot
+                return screenshot_path
+                
+            except Exception as chrome_e:
+                logger.error(f"Error with Chrome webdriver: {str(chrome_e)}")
+                
+                # Try with Firefox as a backup
+                try:
+                    logger.info("Attempting screenshot with Firefox instead")
+                    from selenium.webdriver.firefox.options import Options as FirefoxOptions
+                    from selenium.webdriver.firefox.service import Service as FirefoxService
+                    from webdriver_manager.firefox import GeckoDriverManager
+                    
+                    firefox_options = FirefoxOptions()
+                    firefox_options.add_argument("--headless")
+                    
+                    driver = webdriver.Firefox(
+                        service=FirefoxService(GeckoDriverManager().install()),
+                        options=firefox_options
+                    )
+                    
+                    driver.get(target_url)
+                    time.sleep(3)
+                    driver.save_screenshot(screenshot_path)
+                    driver.quit()
+                    
+                    logger.info(f"Firefox screenshot saved to {screenshot_path}")
+                    return screenshot_path
+                    
+                except Exception as firefox_e:
+                    logger.error(f"Error with Firefox webdriver: {str(firefox_e)}")
+                    logger.warning("Screenshot functionality is unavailable. Please ensure either Chrome or Firefox is installed.")
+                    return None
+        
+        except Exception as e:
+            logger.error(f"Error capturing screenshot of {target_url}: {str(e)}")
+            # Print traceback for debugging
+            import traceback
+            logger.error(traceback.format_exc())
+            return None
+
+    def _generate_screenshot_section(self, f, target_url):
+        """Generate a section with a screenshot of the website"""
+        # Check if we already have a screenshot
+        screenshots_dir = os.path.join(self.output_dir, "screenshots")
+        domain = urlparse(target_url).netloc
+        if not domain:
+            domain = "website"
+        screenshot_path = os.path.join(screenshots_dir, f"{domain}_screenshot.png")
+        
+        # Take screenshot if we don't have one yet
+        if not os.path.exists(screenshot_path):
+            screenshot_path = self._capture_website_screenshot(target_url)
+        
+        # If we have a screenshot, display it
+        if screenshot_path and os.path.exists(screenshot_path):
+            # Get the relative path for HTML embedding
+            rel_path = os.path.relpath(screenshot_path, self.output_dir)
+            
+            # Create screenshot section
+            f.write("<div class='section'>")
+            f.write("<h2>WEBSITE SCREENSHOT</h2>")
+            
+            # Add timestamp
+            from datetime import datetime  # Make sure datetime is imported properly
+            capture_time = datetime.fromtimestamp(os.path.getmtime(screenshot_path))
+            f.write(f"<p>Screenshot captured on: {capture_time.strftime('%Y-%m-%d %H:%M:%S')}</p>")
+            
+            # Display the screenshot with responsive sizing
+            f.write(f"""
+            <div style="text-align: center; margin: 20px 0;">
+                <img src="{rel_path}" alt="Website Screenshot" style="max-width: 100%; border: 1px solid #ddd; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);" />
+            </div>
+            """)
+            
+            # Add a link to open the full-size screenshot
+            f.write(f"""
+            <div style="text-align: center; margin-bottom: 20px;">
+                <a href="{rel_path}" target="_blank" style="display: inline-block; padding: 8px 16px; background-color: #3498db; color: white; text-decoration: none; border-radius: 4px;">
+                    View Full Size Screenshot
+                </a>
+            </div>
+            """)
+            
+            f.write("</div>")  # End of section
+
+    def _generate_gps_map_section(self, f):
+        """Generate an interactive map section for documents with GPS coordinates"""
+        # Collect GPS coordinates from all documents
+        gps_locations = []
+        for file_path, metadata in self.document_metadata.items():
+            if 'gps_data' in metadata and metadata['gps_data']:
+                gps_data = metadata['gps_data']
+                if 'lat' in gps_data and 'lon' in gps_data:
+                    try:
+                        # Convert GPS coords to float if they're not already
+                        lat = float(gps_data['lat']) if isinstance(gps_data['lat'], str) else gps_data['lat']
+                        lon = float(gps_data['lon']) if isinstance(gps_data['lon'], str) else gps_data['lon']
+                        
+                        # Add to locations list with document info
+                        gps_locations.append({
+                            'lat': lat,
+                            'lon': lon,
+                            'filename': os.path.basename(file_path),
+                            'filetype': metadata['file_type'],
+                            'file_path': file_path
+                        })
+                    except (ValueError, TypeError):
+                        logger.warning(f"Invalid GPS coordinates in {file_path}: {gps_data}")
+        
+        # Only generate map if we have locations
+        if not gps_locations:
+            return
+        
+        # Write map section
+        f.write("<div class='section'>")
+        f.write("<h2>GPS COORDINATE MAP</h2>")
+        
+        # Table of GPS coordinates
+        f.write("<table>")
+        f.write("<tr><th>File</th><th>Type</th><th>Latitude</th><th>Longitude</th></tr>")
+        
+        for loc in gps_locations:
+            f.write(f"<tr data-lat='{loc['lat']}' data-lon='{loc['lon']}' class='location-row' style='cursor:pointer;'>")
+            f.write(f"<td>{loc['filename']}</td>")
+            f.write(f"<td>{loc['filetype']}</td>")
+            f.write(f"<td>{loc['lat']}</td>")
+            f.write(f"<td>{loc['lon']}</td>")
+            f.write("</tr>")
+        
+        f.write("</table>")
+        
+        # Map container
+        f.write("<div id='map' style='height: 500px; margin-top: 20px;'></div>")
+        
+        # Leaflet.js library and custom script
+        f.write("""
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+        <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                // Initialize map
+                var map = L.map('map');
+                
+                // Add OpenStreetMap tile layer
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                }).addTo(map);
+                
+                // Define location data
+                var locations = [
+        """)
+        
+        # Add location data as JavaScript array
+        for loc in gps_locations:
+            f.write(f"""                {{
+                        lat: {loc['lat']},
+                        lon: {loc['lon']},
+                        name: "{loc['filename']}",
+                        type: "{loc['filetype']}"
+                    }},
+        """)
+        
+        f.write("""            ];
+                
+                // Create markers for each location
+                var markers = [];
+                locations.forEach(function(loc) {
+                    var marker = L.marker([loc.lat, loc.lon])
+                        .addTo(map)
+                        .bindPopup("<b>" + loc.name + "</b><br>Type: " + loc.type + "<br>Coordinates: " + loc.lat + ", " + loc.lon);
+                    markers.push(marker);
+                });
+                
+                // Set view to fit all markers
+                if (markers.length > 0) {
+                    var group = new L.featureGroup(markers);
+                    map.fitBounds(group.getBounds().pad(0.1));
+                } else {
+                    map.setView([0, 0], 2); // Default view if no markers
+                }
+                
+                // Add click handler for table rows
+                document.querySelectorAll('.location-row').forEach(function(row) {
+                    row.addEventListener('click', function() {
+                        var lat = parseFloat(this.getAttribute('data-lat'));
+                        var lon = parseFloat(this.getAttribute('data-lon'));
+                        map.setView([lat, lon], 15);
+                        
+                        // Find and open the corresponding marker popup
+                        markers.forEach(function(marker) {
+                            var markerLatLng = marker.getLatLng();
+                            if (markerLatLng.lat === lat && markerLatLng.lng === lon) {
+                                marker.openPopup();
+                            }
+                        });
+                    });
+                });
+            });
+        </script>
+        """)
+        
+        f.write("</div>") # End of section
+
+    def _generate_relationship_graph(self, f):
+        """Generate an interactive social graph visualization of entity relationships"""
+        # Skip if there's no useful data to visualize
+        if not self.users and not self.emails and not self.internal_domains:
+            return
+        
+        # Prepare nodes and links data
+        nodes = []
+        links = []
+        node_index = {}  # To track node indices
+        
+        # Helper to add a node if it doesn't exist
+        def add_node(id, label, type):
+            if id not in node_index:
+                node_index[id] = len(nodes)
+                nodes.append({
+                    "id": id,
+                    "label": label,
+                    "type": type
+                })
+            return node_index[id]
+        
+        # Add users
+        for user in self.users:
+            add_node(f"user_{user}", user, "user")
+        
+        # Add emails and create links to users
+        for email in self.emails:
+            if '@' in email:
+                username, domain = email.split('@')
+                
+                # Add email node
+                email_idx = add_node(f"email_{email}", email, "email")
+                
+                # Add domain node
+                domain_idx = add_node(f"domain_{domain}", domain, "domain")
+                
+                # Link email to domain
+                links.append({
+                    "source": email_idx,
+                    "target": domain_idx,
+                    "type": "belongs_to"
+                })
+                
+                # Link users to emails if username matches
+                for user in self.users:
+                    # Simple matching - can be improved
+                    if user.lower() in username.lower() or username.lower() in user.lower():
+                        user_idx = node_index[f"user_{user}"]
+                        links.append({
+                            "source": user_idx,
+                            "target": email_idx,
+                            "type": "owns"
+                        })
+        
+        # Add domains and their relationships
+        for domain in self.internal_domains:
+            domain_idx = add_node(f"domain_{domain}", domain, "domain")
+            
+            # Link domains to IPs
+            for ip in self.ip_addresses:
+                if ip in self.ip_info and domain in self.ip_info[ip].get('associated_domains', []):
+                    ip_idx = add_node(f"ip_{ip}", ip, "ip")
+                    links.append({
+                        "source": domain_idx,
+                        "target": ip_idx,
+                        "type": "resolves_to"
+                    })
+        
+        # Generate HTML for the visualization
+        f.write("<div class='section'>")
+        f.write("<h2>RELATIONSHIP GRAPH</h2>")
+        f.write("<p>Interactive visualization of relationships between entities discovered in metadata.</p>")
+        
+        # Controls for the graph
+        f.write("""
+        <div style="margin-bottom: 15px;">
+            <div style="margin-bottom: 10px;">
+                <strong>Filter by type:</strong>
+                <label><input type="checkbox" class="node-type" value="user" checked> Users</label>
+                <label><input type="checkbox" class="node-type" value="email" checked> Emails</label>
+                <label><input type="checkbox" class="node-type" value="domain" checked> Domains</label>
+                <label><input type="checkbox" class="node-type" value="ip" checked> IP Addresses</label>
+            </div>
+            <button id="reset-zoom" style="margin-right: 10px;">Reset Zoom</button>
+            <input type="range" id="link-distance" min="30" max="300" value="100">
+            <label for="link-distance">Link Distance</label>
         </div>
-    </body>
-    </html>""")
+        """)
+        
+        # SVG container for the graph
+        f.write('<svg id="relationship-graph" width="100%" height="600" style="border: 1px solid #ccc; border-radius: 5px;"></svg>')
+        
+        # Load D3.js and add visualization code
+        f.write("""
+        <script src="https://d3js.org/d3.v7.min.js"></script>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Graph data
+            const nodes = """)
+        f.write(json.dumps(nodes))
+        f.write(";\n        const links = ")
+        f.write(json.dumps(links))
+        f.write(""";
+            
+            // Node colors by type
+            const colors = {
+                user: "#4299E1",   // Blue
+                email: "#48BB78",  // Green
+                domain: "#ED8936", // Orange
+                ip: "#9F7AEA"      // Purple
+            };
+            
+            // Node sizes by type
+            const sizes = {
+                user: 8,
+                email: 6,
+                domain: 10,
+                ip: 7
+            };
+            
+            // Set up the SVG
+            const svg = d3.select("#relationship-graph");
+            const width = svg.node().getBoundingClientRect().width;
+            const height = svg.node().getBoundingClientRect().height;
+            
+            // Create zoom behavior
+            const zoom = d3.zoom()
+                .scaleExtent([0.1, 4])
+                .on("zoom", (event) => {
+                    g.attr("transform", event.transform);
+                });
+            
+            svg.call(zoom);
+            
+            // Create container for the graph
+            const g = svg.append("g");
+            
+            // Initialize the simulation
+            const simulation = d3.forceSimulation(nodes)
+                .force("link", d3.forceLink(links).id(d => d.id).distance(100))
+                .force("charge", d3.forceManyBody().strength(-200))
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                .force("collision", d3.forceCollide().radius(d => sizes[d.type] * 2));
+            
+            // Create links
+            const link = g.append("g")
+                .selectAll("line")
+                .data(links)
+                .join("line")
+                .attr("stroke", "#999")
+                .attr("stroke-opacity", 0.6)
+                .attr("stroke-width", 1);
+            
+            // Create nodes
+            const node = g.append("g")
+                .selectAll("circle")
+                .data(nodes)
+                .join("circle")
+                .attr("r", d => sizes[d.type])
+                .attr("fill", d => colors[d.type])
+                .attr("class", d => `node-${d.type}`)
+                .call(drag(simulation));
+            
+            // Add labels
+            const label = g.append("g")
+                .selectAll("text")
+                .data(nodes)
+                .join("text")
+                .text(d => d.label)
+                .attr("font-size", 8)
+                .attr("dx", 12)
+                .attr("dy", ".35em")
+                .attr("class", d => `label-${d.type}`)
+                .attr("pointer-events", "none");
+            
+            // Initialize the simulation
+            simulation.on("tick", () => {
+                link
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+                
+                node
+                    .attr("cx", d => d.x)
+                    .attr("cy", d => d.y);
+                
+                label
+                    .attr("x", d => d.x)
+                    .attr("y", d => d.y);
+            });
+            
+            // Add tooltips
+            node.append("title")
+                .text(d => `${d.label} (${d.type})`);
+            
+            // Implement dragging
+            function drag(simulation) {
+                function dragstarted(event) {
+                    if (!event.active) simulation.alphaTarget(0.3).restart();
+                    event.subject.fx = event.subject.x;
+                    event.subject.fy = event.subject.y;
+                }
+                
+                function dragged(event) {
+                    event.subject.fx = event.x;
+                    event.subject.fy = event.y;
+                }
+                
+                function dragended(event) {
+                    if (!event.active) simulation.alphaTarget(0);
+                    event.subject.fx = null;
+                    event.subject.fy = null;
+                }
+                
+                return d3.drag()
+                    .on("start", dragstarted)
+                    .on("drag", dragged)
+                    .on("end", dragended);
+            }
+            
+            // Handle type filtering
+            document.querySelectorAll('.node-type').forEach(checkbox => {
+                checkbox.addEventListener('change', function() {
+                    const type = this.value;
+                    const isChecked = this.checked;
+                    
+                    // Update node visibility
+                    node.filter(d => d.type === type)
+                        .style("display", isChecked ? "block" : "none");
+                    
+                    // Update label visibility
+                    label.filter(d => d.type === type)
+                        .style("display", isChecked ? "block" : "none");
+                    
+                    // Update link visibility
+                    link.style("display", function(d) {
+                        const sourceType = nodes[links.indexOf(d)].source.type;
+                        const targetType = nodes[links.indexOf(d)].target.type;
+                        
+                        // Check if either end of the link is hidden
+                        const sourceVisible = document.querySelector(`.node-type[value="${sourceType}"]`).checked;
+                        const targetVisible = document.querySelector(`.node-type[value="${targetType}"]`).checked;
+                        
+                        return (sourceVisible && targetVisible) ? "block" : "none";
+                    });
+                    
+                    // Reheat the simulation
+                    simulation.alpha(0.3).restart();
+                });
+            });
+            
+            // Reset zoom
+            document.getElementById('reset-zoom').addEventListener('click', function() {
+                svg.transition().duration(750).call(
+                    zoom.transform,
+                    d3.zoomIdentity,
+                    d3.zoomTransform(svg.node()).invert([width / 2, height / 2])
+                );
+            });
+            
+            // Update link distance
+            document.getElementById('link-distance').addEventListener('input', function() {
+                const distance = parseInt(this.value);
+                simulation.force("link").distance(distance);
+                simulation.alpha(0.3).restart();
+            });
+        });
+        </script>
+        """)
+        
+        f.write("</div>") # End of section
 
     def run(self):
         """Execute the full analysis"""
@@ -2157,8 +2540,6 @@ def main():
                        help="Crawl depth (0=homepage only, 1=direct links, 2=links from direct links, etc.). Higher values crawl more of the site but take longer.")
     parser.add_argument("--threads", "-t", type=int, default=10, help="Number of threads")
     parser.add_argument("--local", "-l", help="Local directory of files to analyze (instead of URL)")
-    parser.add_argument("--format", "-f", default="text", 
-                       help="Report format(s): 'text', 'html', 'pdf', comma-separated list, or 'all'")
     parser.add_argument("--time-delay", type=float, default=0.0,
                        help="Delay in seconds between web requests to avoid overwhelming the server (e.g., 0.5)")
     parser.add_argument("--user-agent", choices=["default", "chrome", "firefox", "safari", "edge", "mobile", "random"],
@@ -2210,32 +2591,17 @@ def main():
         print(f"{Fore.YELLOW}Installation instructions: https://exiftool.org/install.html{Style.RESET_ALL}")
         sys.exit(1)
     
+    # Check for Selenium if using URL scanning (for screenshots)
+    if args.url:
+        try:
+            from selenium import webdriver
+        except ImportError:
+            print(f"\n{Fore.YELLOW}Warning: Selenium is not installed. Website screenshots will be disabled.{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}To enable screenshots, install Selenium: pip install selenium webdriver-manager{Style.RESET_ALL}")
+    
     try:
-        # Parse format option
-        formats_to_generate = []
-        if args.format.lower() == 'all':
-            formats_to_generate = ["text", "html", "pdf"]
-        else:
-            # Split by comma and strip whitespace
-            formats = [fmt.strip().lower() for fmt in args.format.split(',')]
-            
-            # Validate formats
-            valid_formats = ["text", "html", "pdf"]
-            for fmt in formats:
-                if fmt in valid_formats:
-                    formats_to_generate.append(fmt)
-                else:
-                    logger.warning(f"Ignoring invalid format: {fmt}. Valid formats are: {', '.join(valid_formats)}")
-            
-            # If no valid formats specified, default to text
-            if not formats_to_generate:
-                logger.warning("No valid formats specified, defaulting to text format")
-                formats_to_generate = ["text"]
-        
-        primary_format = formats_to_generate[0]
-        
         if args.url:
-            # URL-based scanning - create a single instance and run once
+            # URL-based scanning
             target_url = args.url
             if not target_url.startswith(('http://', 'https://')):
                 target_url = f'https://{target_url}'
@@ -2245,32 +2611,24 @@ def main():
                 output_dir=args.output,
                 depth=args.depth,
                 threads=args.threads,
-                report_format=primary_format,
                 time_delay=args.time_delay,
                 user_agent=args.user_agent
             )
             
-            # Store all report formats
-            sidikjari_scanner.report_formats = formats_to_generate
-            
-            # Run the full analysis once
+            # Run the full analysis
             sidikjari_scanner.run()
             
         else:
-            # Local directory scanning - create a single instance and run once
+            # Local directory scanning
             print(f"{Fore.GREEN}Analyzing local directory: {args.local}{Style.RESET_ALL}")
 
             local_sidikjari = LocalSidikjari(
                 input_dir=args.local,
                 output_dir=args.output,
-                threads=args.threads,
-                report_format=primary_format
+                threads=args.threads
             )
             
-            # Store all report formats
-            local_sidikjari.report_formats = formats_to_generate
-            
-            # Run the full analysis once
+            # Run the full analysis
             local_sidikjari.run()
             
     except Exception as e:
