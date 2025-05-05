@@ -1,4 +1,4 @@
-# Sidakjari - Python Edition
+# Sidikjari
 
 A modern implementation of the FOCA (Fingerprinting Organizations with Collected Archives) tool written in Python.
 
@@ -32,76 +32,35 @@ The tool:
 
 ## Installation
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/modern-foca.git
-cd modern-foca
+## Disclaimer
 
-# Create a virtual environment (recommended)
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+This tool is for educational and research purposes only. Users are responsible for how they deploy and use this honeypot system. Always obtain proper authorization before deploying honeypots in production environments.
 
-# Install dependencies
-pip install -r requirements.txt
-```
-
-## Usage
-
-### Basic Usage
-
-```bash
-# Scan a website
-python modern_foca.py --url https://example.com --output results
-
-# Analyze local documents
-python modern_foca.py --local ./documents --output results
-```
-
-### Advanced Options
-
-```bash
-# Increase crawl depth
-python modern_foca.py --url https://example.com --depth 3
-
-# Use more threads for faster processing
-python modern_foca.py --url https://example.com --threads 20
-
-# Full options
-python modern_foca.py --help
-```
-
-### Programmatic Usage
-
-See the [usage_examples.py](usage_examples.py) file for examples of how to use Sidakjari in your own Python scripts.
-
-## Output
-
-Sidakjari generates reports in the specified output directory:
-
-```
-output/
-??? documents/        # Downloaded documents
-??? reports/
-    ??? users.txt     # Discovered users and emails
-    ??? domains.txt   # Discovered domains
-    ??? software.txt  # Discovered software
-    ??? networks.txt  # Discovered network information
-```
-
-## Ethical Use
-
-This tool is intended for legitimate security testing, penetration testing, and security audits with proper authorization. Always:
-
-1. Obtain proper permission before scanning any website
-2. Respect the privacy and confidentiality of any information discovered
-3. Follow responsible disclosure procedures if vulnerabilities are identified
-4. Comply with all applicable laws and regulations
-
-Unauthorized use of this tool against systems without permission may violate laws.
+## Contact
+For professional services, integrations, or support contact: operations@redcellsecurity.org
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+**Author**: Keith Pachulski  
+**Company**: Red Cell Security, LLC  
+**Email**: keith@redcellsecurity.org  
+**Website**: www.redcellsecurity.org  
+
+© 2025 Keith Pachulski. All rights reserved.
+
+**License**: This software is licensed under the MIT License. You are free to use, modify, and distribute this software in accordance with the terms of the license.
+
+## Support My Work
+
+If you find my work useful and want to support continued development, you can donate here:
+
+[![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg)](https://paypal.me/sec0ps)
+
+> **DISCLAIMER**:  
+> This software is provided "as-is," without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement. In no event shall the authors or copyright holders
+> be liable for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, or in connection with the software or the use or other dealings in the software.
+> This tool is for educational and research purposes only. Users are responsible for how they deploy and use this honeypot system. Always obtain proper authorization before deploying honeypots in production environments.
+
 
 ## Acknowledgements
 
