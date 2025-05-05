@@ -1,7 +1,5 @@
 # Sidikjari - Metadata Extraction and Analysis Tool
 
-![Sidikjari Logo](https://redcellsecurity.org/assets/sidikjari_logo.png)
-
 ## Overview
 
 Sidikjari is a powerful Python-based metadata extraction and analysis tool designed for cybersecurity professionals, penetration testers, and security researchers. It crawls websites to discover documents, extracts comprehensive metadata from various file types, and generates detailed reports highlighting potential security risks and information leakage.
