@@ -6,7 +6,7 @@
 
 Sidikjari is a powerful Python-based metadata extraction and analysis tool designed for cybersecurity professionals, penetration testers, and security researchers. It crawls websites to discover documents, extracts comprehensive metadata from various file types, and generates detailed reports highlighting potential security risks and information leakage.
 
-Developed by Red Cell Security, LLC, Sidikjari helps identify sensitive information that might be unintentionally exposed in document metadata, which could be leveraged during security assessments or by malicious actors.
+Sidikjari helps identify sensitive information that might be unintentionally exposed in document metadata, which could be leveraged during security assessments or by malicious actors.
 
 ## Key Features
 
