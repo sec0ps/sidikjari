@@ -1,41 +1,55 @@
-# Sidikjari - Metadata Extraction and Analysis Tool
+# Sidikjari: Advanced Metadata Extraction and Analysis Tool
 
-## Overview
+**Overview**
+Sidikjari is a sophisticated Python-based metadata extraction and analysis tool designed for cybersecurity professionals, penetration testers, digital forensic analysts, and security researchers. It systematically crawls websites to discover documents, extracts comprehensive metadata from various file types, and generates detailed interactive reports that highlight potential security risks, information leakage, and organizational relationships.
 
-Sidikjari is a powerful Python-based metadata extraction and analysis tool designed for cybersecurity professionals, penetration testers, and security researchers. It crawls websites to discover documents, extracts comprehensive metadata from various file types, and generates detailed reports highlighting potential security risks and information leakage.
+Sidikjari helps identify sensitive information unintentionally exposed in document metadata that could be leveraged during security assessments, investigations, or by malicious actors.
 
-Sidikjari helps identify sensitive information that might be unintentionally exposed in document metadata, which could be leveraged during security assessments or by malicious actors.
+**Key Features**
 
-## Key Features
+* **Advanced Website Crawling**: Recursively crawls websites to discover documents with configurable depth and threading
+* **Form Discovery and Analysis**: Identifies and captures sensitive web forms, including login, registration, and contact forms
+* **Intelligent Document Handling**: Automatically downloads and analyzes discovered documents
+* **Comprehensive Metadata Extraction**: Extracts detailed metadata from multiple document types:
+  * PDF files (author information, creation/modification dates, software used)
+  * Microsoft Office documents (DOCX, XLSX, PPTX)
+  * Image files with EXIF data (JPG, JPEG, PNG, GIF)
+  * CSV files and structured data
+* **SSL Certificate Analysis**: Evaluates security of target's SSL implementation
+* **Website Screenshot Capture**: Takes full-page screenshots of target websites
+* **Domain Intelligence Collection**: Gathers WHOIS data, DNS records, and domain status information
+* **IP Address Analysis**: Collects detailed information about discovered IP addresses, including geolocation, ASN data, and reverse DNS
+* **GPS Data Extraction and Mapping**: Creates interactive maps for documents containing geolocation data
+* **Entity Relationship Analysis**: Builds interactive visualization graphs showing connections between users, domains, emails, and IP addresses
+* **Multi-Threaded Performance**: Concurrent operations for significantly faster analysis
+* **Interactive HTML Reporting**: Generates comprehensive reports with collapsible sections, interactive visualizations, and detailed findings
+* **Local File Analysis Mode**: Can analyze directories of local files instead of crawling websites
+* **Customizable Crawling Parameters**: Configurable user-agent types and request throttling
+* **Extensive Logging**: Maintains detailed logs of all actions for audit purposes
 
-- **Website Crawling**: Recursively crawls websites to discover documents at a configurable depth
-- **Document Download**: Automatically downloads discovered documents for detailed analysis
-- **Comprehensive Metadata Extraction**: Extracts metadata from multiple document types:
-  - PDF files
-  - Microsoft Office documents (DOCX, XLSX, PPTX)
-  - Image files (JPG, JPEG, PNG, GIF)
-  - CSV files
-- **Multi-threaded Processing**: Performs concurrent operations for faster analysis
-- **Detailed Reports**: Generates comprehensive HTML reports including:
-  - Document metadata summaries
-  - User/author identification
-  - Software identification
-  - Domain and email intelligence
-  - GPS location mapping (for documents with geolocation data)
-  - Interactive relationship graphs
-  - SSL certificate analysis
-  - Website screenshots
-- **Local File Analysis**: Can analyze local directories of files instead of crawling websites
-- **WHOIS Integration**: Collects domain registration information
-- **IP Intelligence**: Gathers details about discovered IP addresses
-- **Customizable User-Agent**: Allows specification of browser type for web requests
-- **Request Throttling**: Configurable time delay between requests to avoid overwhelming servers
+**Advanced Data Extraction Capabilities**
 
-## Requirements
+* Extracts user/author information across documents to identify organizational structure
+* Discovers email addresses and internal domains from document content
+* Identifies internal file paths that may reveal system architecture
+* Detects software versions for potential vulnerability assessment
+* Extracts device information from document metadata
+* Maps relationships between entities to reveal organizational connections
+* Collects temporal data to establish document timelines
 
-- Python 3.6+
-- ExifTool (must be installed and available in PATH)
-- Various Python libraries (see requirements section)
+**Requirements**
+* Python 3.6+
+* ExifTool (must be installed and available in PATH)
+* wkhtmltoimage (for screenshot capabilities)
+* Various Python libraries (including requests, BeautifulSoup, magic, PyPDF2, PIL, docx, openpyxl, etc.)
+
+**Practical Applications**
+* Security assessments and penetration testing
+* Digital forensic investigations
+* OSINT (Open Source Intelligence) gathering
+* Security vulnerability assessments
+* Document metadata security auditing
+* Organizational relationship mapping
 
 ## Installation
 
@@ -48,6 +62,7 @@ cd sidikjari
 2. Install required Python dependencies:
 ```
 pip install -r requirements.txt
+sudo apt install wkhtmltopdf
 ```
 
 3. Install ExifTool:
