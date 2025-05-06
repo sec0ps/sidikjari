@@ -62,17 +62,7 @@ cd sidikjari
 2. Install required Python dependencies:
 ```
 pip install -r requirements.txt
-sudo apt install wkhtmltopdf
-```
-
-3. Install ExifTool:
-   - Windows: Download from https://exiftool.org/ and add to PATH
-   - macOS: `brew install exiftool`
-   - Linux: `apt-get install exiftool` or equivalent
-
-4. For screenshot functionality (optional):
-```
-pip install selenium webdriver-manager
+sudo apt install wkhtmltopdf exiftool
 ```
 
 ## Usage
