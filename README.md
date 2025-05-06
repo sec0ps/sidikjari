@@ -55,7 +55,7 @@ Sidikjari helps identify sensitive information unintentionally exposed in docume
 
 1. Clone the repository:
 ```
-git clone [https://github.com/redcellsecurity/sidikjari.git](https://github.com/sec0ps/sidikjari)
+git clone https://github.com/sec0ps/sidikjari.git
 cd sidikjari
 ```
 
