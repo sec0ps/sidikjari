@@ -118,10 +118,6 @@ python sidikjari.py --url targetcompany.com --depth 3 --time-delay 0.5 --user-ag
 python sidikjari.py --local /path/to/client/documents --threads 20
 ```
 
-## Disclaimer
-
-This software is provided "as-is" under the MIT License. It should only be used for legitimate security assessments with proper authorization. The authors are not responsible for misuse or any damages resulting from the use of this software.
-
 ## Contact
 For professional services, integrations, or support contact: operations@redcellsecurity.org
 
@@ -134,7 +130,7 @@ For professional services, integrations, or support contact: operations@redcells
 
 © 2025 Keith Pachulski. All rights reserved.
 
-**License**: This software is licensed under the MIT License. You are free to use, modify, and distribute this software in accordance with the terms of the license.
+**This software is provided "as-is" under the MIT License. It should only be used for legitimate security assessments with proper authorization. The authors are not responsible for misuse or any damages resulting from the use of this software.
 
 ## Support My Work
 
