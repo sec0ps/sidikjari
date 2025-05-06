@@ -163,7 +163,7 @@ class Sidikjari:
         logger.info(f"{Fore.GREEN}Crawling complete. Found {len(self.document_urls)} documents{Style.RESET_ALL}")
         
     def _crawl_url(self, url, current_depth):
-        """Recursively crawl URLs up to the specified depth"""
+        """Recursively crawl URLs up to the specified depth, and capture forms"""
         # Ensure URL has a scheme (add https:// if not present)
         if not url.startswith(('http://', 'https://')):
             url = f'https://{url}'
@@ -197,6 +197,13 @@ class Sidikjari:
                 # If HTML, parse links and continue crawling
                 if 'text/html' in content_type:
                     soup = BeautifulSoup(response.text, 'html.parser')
+                    
+                    # Check for forms on the page
+                    forms = soup.find_all('form')
+                    if forms:
+                        logger.info(f"Found {len(forms)} form(s) on {url}")
+                        self._capture_form_screenshots(url, forms)
+                    
                     for link in soup.find_all('a', href=True):
                         next_url = link['href']
                         
@@ -216,6 +223,452 @@ class Sidikjari:
         except Exception as e:
             logger.error(f"Error crawling {url}: {str(e)}")
     
+    def _capture_form_screenshots(self, url, forms):
+        """Capture screenshots of sensitive forms found on a page using wkhtmltoimage"""
+        try:
+            # Create a directory for form screenshots if it doesn't exist
+            form_screenshots_dir = os.path.join(self.output_dir, "form_screenshots")
+            os.makedirs(form_screenshots_dir, exist_ok=True)
+            
+            # Store form information
+            if not hasattr(self, 'form_data'):
+                self.form_data = []
+            
+            # Extract page name from URL for naming screenshots
+            parsed_url = urlparse(url)
+            page_name = parsed_url.path.strip('/')
+            if not page_name:
+                page_name = "homepage"
+            else:
+                # Clean up the page name to be file-system friendly
+                page_name = re.sub(r'[^\w\-_]', '_', page_name)
+                page_name = re.sub(r'_+', '_', page_name)  # Replace multiple underscores with single
+                page_name = page_name[:50]  # Limit length
+            
+            # Identify sensitive forms
+            sensitive_forms = []
+            for i, form_element in enumerate(forms):
+                # Skip search forms and non-sensitive forms
+                if self._is_search_form(form_element):
+                    logger.info(f"Skipping search form on {url}")
+                    continue
+                    
+                # Determine if this is a sensitive form
+                if self._is_sensitive_form(form_element):
+                    # Generate unique identifier for this form
+                    form_id = f"{page_name}_{i+1}"
+                    
+                    # Get form attributes
+                    form_attrs = self._extract_form_attributes(form_element)
+                    
+                    # Create a title for this form
+                    form_title = self._create_form_title(form_element, form_attrs, i)
+                    
+                    # Add form info to our list
+                    sensitive_forms.append({
+                        'url': url,
+                        'form_index': i+1,
+                        'form_id': form_id,
+                        'title': form_title,
+                        'attributes': form_attrs,
+                        'page_name': page_name
+                    })
+            
+            # Log how many sensitive forms found
+            logger.info(f"Found {len(sensitive_forms)} sensitive forms on {url}")
+            
+            # Check if wkhtmltoimage is available
+            if not shutil.which('wkhtmltoimage'):
+                logger.error("wkhtmltoimage tool not found. Please make sure wkhtmltopdf is installed correctly.")
+                return
+            
+            # Only proceed if we have sensitive forms to capture
+            if sensitive_forms:
+                # Take a screenshot of the full page once
+                full_page_screenshot_path = os.path.join(form_screenshots_dir, f"{page_name}_full.png")
+                
+                # Build the command for full page screenshot
+                cmd = [
+                    'wkhtmltoimage',
+                    '--width', '1366',       # Set width
+                    '--height', '1536',      # Set taller height to capture more of page
+                    '--quality', '90',       # High quality
+                    '--javascript-delay', '2000',  # Wait 2 seconds for JavaScript
+                    '--no-stop-slow-scripts',      # Don't stop for slow scripts
+                    '--disable-smart-width',       # Use specified width
+                    '--enable-local-file-access',  # Allow local file access if needed
+                    '--load-error-handling', 'ignore',  # Ignore load errors
+                ]
+                
+                # Add user-agent to avoid bot detection
+                cmd.extend(['--custom-header', 'User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'])
+                
+                # Add the URL and output path
+                cmd.extend([url, full_page_screenshot_path])
+                
+                try:
+                    # Execute the command with a timeout
+                    process = subprocess.run(
+                        cmd,
+                        timeout=30,  # 30-second timeout
+                        check=False, # Don't raise exception on non-zero exit
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                    )
+                    
+                    # Check if the screenshot was successful
+                    if os.path.exists(full_page_screenshot_path) and os.path.getsize(full_page_screenshot_path) > 0:
+                        logger.info(f"Full page screenshot saved to {full_page_screenshot_path}")
+                        
+                        # Use the full page screenshot for all forms
+                        for form in sensitive_forms:
+                            form['screenshot_path'] = full_page_screenshot_path
+                            self.form_data.append(form)
+                        
+                    else:
+                        logger.warning(f"Failed to capture full page screenshot for {url}")
+                        
+                        # Try with simpler options if the first attempt failed
+                        simple_cmd = [
+                            'wkhtmltoimage',
+                            '--width', '1024',
+                            '--height', '1024',
+                            '--disable-javascript',  # Disable JavaScript completely
+                            url,
+                            full_page_screenshot_path
+                        ]
+                        
+                        process = subprocess.run(
+                            simple_cmd,
+                            timeout=20,
+                            check=False,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE
+                        )
+                        
+                        if os.path.exists(full_page_screenshot_path) and os.path.getsize(full_page_screenshot_path) > 0:
+                            logger.info(f"Full page screenshot saved using simplified options to {full_page_screenshot_path}")
+                            
+                            # Add form data with the simplified screenshot
+                            for form in sensitive_forms:
+                                form['screenshot_path'] = full_page_screenshot_path
+                                self.form_data.append(form)
+                        else:
+                            logger.error(f"Both wkhtmltoimage attempts failed for {url}")
+                    
+                except subprocess.TimeoutExpired:
+                    logger.error(f"Timeout while running wkhtmltoimage for {url}")
+                except Exception as wk_e:
+                    logger.error(f"Error using wkhtmltoimage: {str(wk_e)}")
+                    
+        except Exception as e:
+            logger.error(f"Error setting up form screenshot capture for {url}: {str(e)}")
+            # Print traceback for debugging
+            import traceback
+            logger.error(traceback.format_exc())
+    
+    def _is_search_form(self, form_element):
+        """Determine if a form is a search form"""
+        # Check role attribute
+        if form_element.get('role') == 'search':
+            return True
+            
+        # Check class attribute
+        if form_element.get('class'):
+            classes = form_element['class'] if isinstance(form_element['class'], list) else [form_element['class']]
+            if any('search' in c.lower() for c in classes):
+                return True
+                
+        # Check for search input types
+        search_inputs = form_element.find_all('input', {'type': 'search'})
+        if search_inputs:
+            return True
+                
+        # Check for search in action URL
+        action = form_element.get('action', '')
+        if 'search' in action.lower():
+            return True
+                
+        # Look for other common search form indicators
+        # Fixed the deprecated 'text' argument, replaced with 'string'
+        if form_element.find('button', string=re.compile(r'search|find', re.I)):
+            return True
+            
+        return False
+    
+    def _is_sensitive_form(self, form_element):
+        """Determine if a form collects sensitive information"""
+        # Login forms typically have password fields
+        if form_element.find('input', {'type': 'password'}):
+            return True
+            
+        # Registration/signup forms
+        if form_element.find('input', {'name': re.compile(r'register|signup|sign-up|create|account', re.I)}):
+            return True
+            
+        # Contact forms
+        contact_fields = form_element.find_all('input', {'name': re.compile(r'name|email|contact|phone|message', re.I)})
+        if len(contact_fields) >= 2:
+            return True
+        
+        # Forms with multiple text inputs (likely collecting information)
+        text_inputs = form_element.find_all('input', {'type': 'text'})
+        if len(text_inputs) >= 3:
+            return True
+            
+        # Forms with textareas (comments, messages, etc.)
+        if form_element.find('textarea'):
+            return True
+            
+        # Check for common sensitive form keywords in various attributes
+        form_html = str(form_element)
+        sensitive_keywords = ['login', 'signin', 'sign-in', 'register', 'signup', 'sign-up', 
+                             'contact', 'subscribe', 'newsletter', 'account', 'profile',
+                             'checkout', 'payment', 'billing', 'shipping', 'order']
+                             
+        for keyword in sensitive_keywords:
+            if re.search(fr'\b{keyword}\b', form_html, re.I):
+                return True
+                    
+        return False
+    
+    def _extract_form_attributes(self, form_element):
+        """Extract important attributes from a form element"""
+        form_attrs = {}
+        
+        for attr in ['id', 'name', 'action', 'method', 'class', 'role']:
+            if form_element.get(attr):
+                form_attrs[attr] = form_element[attr]
+                
+        return form_attrs
+    
+    def _create_form_title(self, form_element, form_attrs, index):
+        """Create a descriptive title for a form"""
+        # Start with a default form title
+        form_title = f"Form {index+1}"
+        
+        # Check for common form types
+        if form_element.find('input', {'type': 'password'}):
+            form_title = "Login Form"
+        elif form_element.find('input', {'name': re.compile(r'register|signup|sign-up', re.I)}):
+            form_title = "Registration Form"
+        elif form_element.find('textarea') and form_element.find('input', {'name': re.compile(r'email', re.I)}):
+            form_title = "Contact Form"
+        elif form_element.find('input', {'name': re.compile(r'newsletter|subscribe', re.I)}):
+            form_title = "Newsletter Subscription"
+        elif form_element.find('input', {'name': re.compile(r'checkout|payment|billing', re.I)}):
+            form_title = "Payment Form"
+            
+        # Use ID or name if available and no specific type was identified
+        if form_title == f"Form {index+1}":
+            if 'id' in form_attrs:
+                form_title = f"Form: {form_attrs['id']}"
+            elif 'name' in form_attrs:
+                form_title = f"Form: {form_attrs['name']}"
+        
+        return form_title
+
+    def _generate_form_screenshots_section(self, f):
+        """Generate a section showing all form screenshots found while crawling"""
+        if not hasattr(self, 'form_data') or not self.form_data:
+            return
+        
+        # Create form screenshots section
+        f.write("<div class='section'>")
+        f.write("<h2>WEBSITE FORMS</h2>")
+        
+        # Add description
+        f.write("<p>The following forms were discovered while crawling the website:</p>")
+        
+        # Determine how to display forms based on count
+        form_count = len(self.form_data)
+        
+        if form_count <= 3:
+            # For few forms, display them full-size
+            for form in self.form_data:
+                self._generate_single_form_display(f, form)
+        else:
+            # For many forms, use a thumbnail gallery
+            f.write("<div class='gallery' style='display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px;'>")
+            
+            for form in self.form_data:
+                self._generate_form_thumbnail(f, form)
+            
+            f.write("</div>")
+            
+            # Add lightbox/modal viewer script
+            self._add_lightbox_script(f)
+        
+        f.write("</div>")  # End of section
+    
+    def _generate_single_form_display(self, f, form):
+        """Generate HTML for displaying a single form in full size"""
+        # Get the relative path for HTML embedding
+        rel_path = os.path.relpath(form['screenshot_path'], self.output_dir)
+        
+        f.write(f"<div class='form-container' style='margin-bottom: 30px;'>")
+        f.write(f"<h3>{form['title']}</h3>")
+        f.write(f"<p>Found on page: <a href='{form['url']}' target='_blank'>{form['url']}</a></p>")
+        
+        # Display form attributes if available
+        if form['attributes']:
+            f.write("<p><strong>Form attributes:</strong></p>")
+            f.write("<ul>")
+            for attr, value in form['attributes'].items():
+                f.write(f"<li>{attr}: {value}</li>")
+            f.write("</ul>")
+        
+        # Display the screenshot with link to the form
+        f.write(f"""
+        <div style="text-align: center; margin: 20px 0;">
+            <a href="{form['url']}" target="_blank">
+                <img src="{rel_path}" alt="{form['title']}" style="max-width: 100%; border: 1px solid #ddd; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);" />
+            </a>
+        </div>
+        """)
+        
+        f.write("</div>")
+    
+    def _generate_form_thumbnail(self, f, form):
+        """Generate HTML for displaying a form as a thumbnail in a gallery"""
+        # Get the relative path for HTML embedding
+        rel_path = os.path.relpath(form['screenshot_path'], self.output_dir)
+        
+        f.write(f"""
+        <div class="gallery-item">
+            <a href="{form['url']}" target="_blank" class="form-link" data-form-id="{form['form_id']}">
+                <div class="thumbnail-container" style="position: relative; overflow: hidden; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+                    <img src="{rel_path}" alt="{form['title']}" style="width: 100%; height: 180px; object-fit: cover; cursor: pointer;" />
+                    <div class="thumbnail-title" style="position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.7); color: white; padding: 8px; font-size: 14px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        {form['title']}
+                    </div>
+                </div>
+            </a>
+        </div>
+        """)
+    
+    def _add_lightbox_script(self, f):
+        """Add JavaScript for a lightbox/modal viewer for the form gallery"""
+        f.write("""
+        <div id="form-modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.8);">
+            <div class="modal-content" style="position: relative; margin: 5% auto; padding: 20px; width: 80%; max-width: 1000px; animation: modalopen 0.3s;">
+                <span class="close-modal" style="position: absolute; top: 15px; right: 25px; color: white; font-size: 35px; font-weight: bold; cursor: pointer;">&times;</span>
+                <div class="modal-body" style="padding: 20px; background: white; border-radius: 5px;">
+                    <h3 id="modal-title" style="margin-top: 0;"></h3>
+                    <p id="modal-url"></p>
+                    <div id="modal-attributes" style="margin-bottom: 15px;"></div>
+                    <div style="text-align: center;">
+                        <img id="modal-image" style="max-width: 100%; max-height: 70vh; border: 1px solid #ddd;" />
+                    </div>
+                    <div style="margin-top: 15px; text-align: center;">
+                        <a id="modal-link" href="#" target="_blank" class="modal-button" style="display: inline-block; padding: 8px 16px; background-color: #3498db; color: white; text-decoration: none; border-radius: 4px;">
+                            Go to Form Page
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Form data
+            const formData = {
+        """)
+        
+        # Add form data as JavaScript object
+        for form in self.form_data:
+            rel_path = os.path.relpath(form['screenshot_path'], self.output_dir)
+            attr_json = json.dumps(form['attributes'])
+            
+            f.write(f"""
+            "{form['form_id']}": {{
+                title: "{form['title']}",
+                url: "{form['url']}",
+                attributes: {attr_json},
+                screenshot: "{rel_path}"
+            }},
+            """)
+        
+        f.write("""
+            };
+            
+            // Get modal elements
+            const modal = document.getElementById('form-modal');
+            const modalTitle = document.getElementById('modal-title');
+            const modalUrl = document.getElementById('modal-url');
+            const modalAttributes = document.getElementById('modal-attributes');
+            const modalImage = document.getElementById('modal-image');
+            const modalLink = document.getElementById('modal-link');
+            const closeModal = document.querySelector('.close-modal');
+            
+            // Click handler for form links
+            document.querySelectorAll('.form-link').forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const formId = this.getAttribute('data-form-id');
+                    const form = formData[formId];
+                    
+                    if (form) {
+                        // Populate modal
+                        modalTitle.textContent = form.title;
+                        modalUrl.textContent = 'Found on: ' + form.url;
+                        
+                        // Build attributes list
+                        let attributesHtml = '';
+                        if (Object.keys(form.attributes).length > 0) {
+                            attributesHtml = '<strong>Form attributes:</strong><ul>';
+                            for (const [key, value] of Object.entries(form.attributes)) {
+                                attributesHtml += `<li>${key}: ${value}</li>`;
+                            }
+                            attributesHtml += '</ul>';
+                        }
+                        modalAttributes.innerHTML = attributesHtml;
+                        
+                        // Set image and link
+                        modalImage.src = form.screenshot;
+                        modalLink.href = form.url;
+                        
+                        // Show modal
+                        modal.style.display = 'block';
+                        document.body.style.overflow = 'hidden'; // Prevent scrolling
+                    }
+                });
+            });
+            
+            // Close modal handlers
+            closeModal.addEventListener('click', closeModalFunc);
+            window.addEventListener('click', event => {
+                if (event.target === modal) {
+                    closeModalFunc();
+                }
+            });
+            
+            // Close modal function
+            function closeModalFunc() {
+                modal.style.display = 'none';
+                document.body.style.overflow = 'auto'; // Re-enable scrolling
+            }
+            
+            // Close on escape key
+            document.addEventListener('keydown', event => {
+                if (event.key === 'Escape' && modal.style.display === 'block') {
+                    closeModalFunc();
+                }
+            });
+        });
+        
+        // Add modal animation
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes modalopen {
+                from {opacity: 0; transform: scale(0.8);}
+                to {opacity: 1; transform: scale(1);}
+            }
+        `;
+        document.head.appendChild(style);
+        </script>
+        """)
+
     def download_documents(self):
         """Downloads all discovered documents for metadata extraction"""
         logger.info(f"{Fore.GREEN}Downloading {len(self.document_urls)} documents{Style.RESET_ALL}")
@@ -1084,45 +1537,76 @@ class Sidikjari:
                 elif status_list:
                     domain_info['domain_status'] = [status_list]
             
-            # Process contact information
-            contact_types = ['registrant', 'admin', 'tech']
-            contact_fields = ['name', 'organization', 'email', 'phone', 'fax', 
-                              'street', 'city', 'state', 'postal_code', 'country']
+            # Process contact information directly from dict keys
+            contact_mappings = {
+                'registrant': {
+                    'name': ['registrant_name', 'registrant'],
+                    'organization': ['registrant_organization', 'org', 'organization'],
+                    'email': ['registrant_email', 'email'],
+                    'phone': ['registrant_phone', 'phone'],
+                    'fax': ['registrant_fax', 'fax'],
+                    'street': ['registrant_street', 'address', 'street'],
+                    'city': ['registrant_city', 'city'],
+                    'state': ['registrant_state_province', 'state', 'province'],
+                    'postal_code': ['registrant_postal_code', 'postal_code', 'zip'],
+                    'country': ['registrant_country', 'country']
+                },
+                'admin': {
+                    'name': ['admin_name', 'administrative_name'],
+                    'organization': ['admin_organization', 'administrative_organization'],
+                    'email': ['admin_email', 'administrative_email'],
+                    'phone': ['admin_phone', 'administrative_phone'],
+                    'fax': ['admin_fax', 'administrative_fax'],
+                    'street': ['admin_street', 'administrative_street', 'administrative_address'],
+                    'city': ['admin_city', 'administrative_city'],
+                    'state': ['admin_state_province', 'administrative_state_province', 'administrative_state'],
+                    'postal_code': ['admin_postal_code', 'administrative_postal_code', 'administrative_zip'],
+                    'country': ['admin_country', 'administrative_country']
+                },
+                'tech': {
+                    'name': ['tech_name', 'technical_name'],
+                    'organization': ['tech_organization', 'technical_organization'],
+                    'email': ['tech_email', 'technical_email'],
+                    'phone': ['tech_phone', 'technical_phone'],
+                    'fax': ['tech_fax', 'technical_fax'],
+                    'street': ['tech_street', 'technical_street', 'technical_address'],
+                    'city': ['tech_city', 'technical_city'],
+                    'state': ['tech_state_province', 'technical_state_province', 'technical_state'],
+                    'postal_code': ['tech_postal_code', 'technical_postal_code', 'technical_zip'],
+                    'country': ['tech_country', 'technical_country']
+                }
+            }
             
-            for contact_type in contact_types:
-                for field in contact_fields:
-                    key = f"{contact_type}_{field}"
-                    if key in whois_dict:
-                        domain_info[contact_type][field] = whois_dict[key]
-            
-            # Special handling for emails (might be in a separate field)
-            if 'emails' in whois_dict and whois_dict['emails']:
-                emails = whois_dict['emails']
-                emails_list = emails if isinstance(emails, list) else [emails]
-                
-                if emails_list and len(emails_list) > 0:
-                    # Assign emails to contacts if not already set
-                    if not domain_info['registrant']['email'] and len(emails_list) > 0:
-                        domain_info['registrant']['email'] = emails_list[0]
-                    if not domain_info['admin']['email'] and len(emails_list) > 1:
-                        domain_info['admin']['email'] = emails_list[1]
-                    if not domain_info['tech']['email'] and len(emails_list) > 2:
-                        domain_info['tech']['email'] = emails_list[2]
+            # Process contact information with improved mapping
+            for contact_type, fields in contact_mappings.items():
+                for field, key_options in fields.items():
+                    for key in key_options:
+                        if key.lower() in whois_dict:
+                            domain_info[contact_type][field] = whois_dict[key.lower()]
+                            break
             
             # Process raw text data using regex if available
             if hasattr(w, 'text') and w.text:
                 whois_text = w.text.lower()
                 logger.debug(f"Processing raw WHOIS text: {whois_text[:200]}...")  # Log first 200 chars
                 
-                # Process contact information using regex
-                for contact_type in contact_types:
-                    for field in contact_fields:
+                # Process contact information using regex for each contact type
+                for contact_type in ['registrant', 'admin', 'tech']:
+                    for field in domain_info[contact_type].keys():
                         # Only try to extract data if it's not already set
                         if not domain_info[contact_type][field]:
-                            pattern = rf"{contact_type}\s+{field}:\s*([^\n]+)"
-                            match = re.search(pattern, whois_text)
-                            if match:
-                                domain_info[contact_type][field] = match.group(1).strip()
+                            # Try different pattern formats
+                            patterns = [
+                                rf"{contact_type}\s+{field}:\s*([^\n]+)",
+                                rf"{contact_type} {field}:\s*([^\n]+)",
+                                rf"{contact_type}-{field}:\s*([^\n]+)"
+                            ]
+                            
+                            for pattern in patterns:
+                                match = re.search(pattern, whois_text)
+                                if match:
+                                    domain_info[contact_type][field] = match.group(1).strip()
+                                    break
                 
                 # Try to extract registrar info if not already set
                 if not domain_info['registrar']:
@@ -1257,7 +1741,7 @@ class Sidikjari:
         return ip_data
 
     def _generate_html_report(self, report_path, target_domain, domain_info=None):
-        """Generate a detailed HTML report with all enhanced features"""
+
         try:
             # Group documents by file type
             documents_by_type = {}
@@ -1268,18 +1752,45 @@ class Sidikjari:
                 documents_by_type[file_type].append((file_path, metadata))
             
             with open(report_path, 'w') as f:
-                # HTML header
+                # HTML header with background image
                 f.write("""<!DOCTYPE html>
     <html>
     <head>
         <title>Sidikjari Metadata Analysis Report</title>
         <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
+            body { 
+                font-family: Arial, sans-serif; 
+                margin: 20px; 
+                background-image: url('https://static.wixstatic.com/media/488c5b_8bd517d20d2b446e906385dec6bf1898~mv2.jpg');
+                background-attachment: fixed;
+                background-size: contain;
+                background-repeat: no-repeat;
+                background-position: center;
+                background-color: #ffffff;
+                position: relative;
+            }
+            body::before {
+                content: "";
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(255, 255, 255, 0.8); /* 80% opacity white overlay */
+                z-index: -1;
+            }
             h1 { color: #2c3e50; }
             h2 { color: #3498db; margin-top: 30px; }
             h3 { color: #2980b9; }
-            .container { max-width: 1200px; margin: 0 auto; }
-            .section { margin-bottom: 30px; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
+            .container { 
+                max-width: 1200px; 
+                margin: 0 auto; 
+                background-color: rgba(255, 255, 255, 0.9);
+                padding: 20px;
+                border-radius: 10px;
+                box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            }
+            .section { margin-bottom: 30px; padding: 20px; border: 1px solid #ddd; border-radius: 5px; background-color: #ffffff; }
             .metadata-item { margin-bottom: 20px; padding: 10px; background-color: #f9f9f9; border-radius: 5px; }
             table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
             th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
@@ -1372,6 +1883,10 @@ class Sidikjari:
                 # Website Screenshot section (if applicable)
                 if self.target_url:
                     self._generate_screenshot_section(f, self.target_url)
+                    
+                    # Add form screenshots section if forms were found
+                    if hasattr(self, 'form_data') and self.form_data:
+                        self._generate_form_screenshots_section(f)
                 
                 # Domain Information
                 if target_domain:
@@ -1518,7 +2033,17 @@ class Sidikjari:
                             f.write("</ul>")
                         
                         f.write("</div>")
+
+                        # MX Records - Add this section
+                        if domain_info.get('mx_records'):
+                            f.write("<h3>MX Records</h3>")
+                            f.write("<ul>")
+                            for mx in domain_info['mx_records']:
+                                f.write(f"<li>{mx}</li>")
+                            f.write("</ul>")
                         
+                        f.write("</div>")  # End of domain info section
+
                         # SSL Certificate Information (right after domain info)
                         if self.target_url:
                             self._generate_ssl_certificate_section(f, self.target_url, domain_info)
@@ -1941,7 +2466,7 @@ class Sidikjari:
             logger.error(traceback.format_exc())
 
     def _capture_website_screenshot(self, target_url):
-        """Capture a screenshot of the target website's landing page"""
+        """Capture a screenshot of the target website's landing page using wkhtmltopdf"""
         try:
             # Create a directory for screenshots if it doesn't exist
             screenshots_dir = os.path.join(self.output_dir, "screenshots")
@@ -1953,111 +2478,91 @@ class Sidikjari:
                 domain = "website"
             screenshot_path = os.path.join(screenshots_dir, f"{domain}_screenshot.png")
             
-            logger.info(f"Capturing screenshot of {target_url}")
+            logger.info(f"Capturing screenshot of {target_url} using wkhtmltoimage")
             
-            # Check for required libraries
+            # Use wkhtmltoimage (part of wkhtmltopdf package)
             try:
-                from selenium import webdriver
-                from selenium.webdriver.chrome.options import Options
-                from selenium.webdriver.chrome.service import Service
-                from webdriver_manager.chrome import ChromeDriverManager
-            except ImportError:
-                logger.error("Screenshot functionality requires Selenium and webdriver-manager libraries.")
-                logger.error("Please install with: pip install selenium webdriver-manager")
-                return None
-            
-            # Configure Chrome options for headless operation
-            chrome_options = Options()
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--window-size=1920,1080")
-            
-            # Try to find Chrome binary explicitly
-            chrome_binary = None
-            possible_paths = [
-                # Linux paths
-                "/usr/bin/google-chrome",
-                "/usr/bin/chromium-browser",
-                "/usr/bin/chromium",
-                # MacOS path
-                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                # Windows paths
-                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-            ]
-            
-            for path in possible_paths:
-                if os.path.exists(path):
-                    chrome_binary = path
-                    logger.info(f"Found Chrome binary at {chrome_binary}")
-                    break
-            
-            if chrome_binary:
-                chrome_options.binary_location = chrome_binary
-            
-            try:
-                # Initialize the Chrome driver
-                driver = webdriver.Chrome(
-                    service=Service(ChromeDriverManager().install()),
-                    options=chrome_options
+                # Check if wkhtmltoimage is available
+                if not shutil.which('wkhtmltoimage'):
+                    logger.error("wkhtmltoimage tool not found. Please make sure wkhtmltopdf is installed correctly.")
+                    return None
+                    
+                # Build the command
+                cmd = [
+                    'wkhtmltoimage',
+                    '--width', '1366',       # Set width
+                    '--height', '768',       # Set height
+                    '--quality', '90',       # High quality
+                    '--javascript-delay', '2000',  # Wait 2 seconds for JavaScript
+                    '--no-stop-slow-scripts',      # Don't stop for slow scripts
+                    '--disable-smart-width',       # Use specified width
+                    '--enable-local-file-access',  # Allow local file access if needed
+                    '--load-error-handling', 'ignore',  # Ignore load errors
+                ]
+                
+                # Add user-agent to avoid bot detection
+                cmd.extend(['--custom-header', 'User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'])
+                
+                # Add the URL and output path
+                cmd.extend([target_url, screenshot_path])
+                
+                # Execute the command with a timeout
+                process = subprocess.run(
+                    cmd,
+                    timeout=30,  # 30-second timeout
+                    check=False, # Don't raise exception on non-zero exit
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
                 )
                 
-                # Navigate to the URL
-                driver.get(target_url)
+                # Check if the command was successful
+                if process.returncode != 0:
+                    logger.warning(f"wkhtmltoimage returned non-zero exit code: {process.returncode}")
+                    logger.warning(f"Stderr: {process.stderr.decode('utf-8', errors='ignore')}")
                 
-                # Give the page time to load (adjust as needed)
-                time.sleep(3)
-                
-                # Take screenshot
-                driver.save_screenshot(screenshot_path)
-                
-                # Close the browser
-                driver.quit()
-                
-                logger.info(f"Screenshot saved to {screenshot_path}")
-                
-                # Return the path to the screenshot
-                return screenshot_path
-                
-            except Exception as chrome_e:
-                logger.error(f"Error with Chrome webdriver: {str(chrome_e)}")
-                
-                # Try with Firefox as a backup
-                try:
-                    logger.info("Attempting screenshot with Firefox instead")
-                    from selenium.webdriver.firefox.options import Options as FirefoxOptions
-                    from selenium.webdriver.firefox.service import Service as FirefoxService
-                    from webdriver_manager.firefox import GeckoDriverManager
+                # Check if the file exists and has content
+                if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 0:
+                    logger.info(f"Screenshot saved to {screenshot_path}")
+                    return screenshot_path
+                else:
+                    logger.warning(f"Screenshot file is empty or does not exist: {screenshot_path}")
                     
-                    firefox_options = FirefoxOptions()
-                    firefox_options.add_argument("--headless")
+                    # Try with simpler options if the first attempt failed
+                    simple_cmd = [
+                        'wkhtmltoimage',
+                        '--width', '1024',
+                        '--height', '768',
+                        '--disable-javascript',  # Disable JavaScript completely
+                        target_url,
+                        screenshot_path
+                    ]
                     
-                    driver = webdriver.Firefox(
-                        service=FirefoxService(GeckoDriverManager().install()),
-                        options=firefox_options
+                    process = subprocess.run(
+                        simple_cmd,
+                        timeout=20,
+                        check=False,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
                     )
                     
-                    driver.get(target_url)
-                    time.sleep(3)
-                    driver.save_screenshot(screenshot_path)
-                    driver.quit()
-                    
-                    logger.info(f"Firefox screenshot saved to {screenshot_path}")
-                    return screenshot_path
-                    
-                except Exception as firefox_e:
-                    logger.error(f"Error with Firefox webdriver: {str(firefox_e)}")
-                    logger.warning("Screenshot functionality is unavailable. Please ensure either Chrome or Firefox is installed.")
-                    return None
-        
+                    if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 0:
+                        logger.info(f"Screenshot saved using simplified options to {screenshot_path}")
+                        return screenshot_path
+                    else:
+                        logger.error("Both wkhtmltoimage attempts failed")
+                        return None
+                        
+            except subprocess.TimeoutExpired:
+                logger.error(f"Timeout while running wkhtmltoimage for {target_url}")
+                return None
+            except Exception as wk_e:
+                logger.error(f"Error using wkhtmltoimage: {str(wk_e)}")
+                return None
+                
         except Exception as e:
-            logger.error(f"Error capturing screenshot of {target_url}: {str(e)}")
-            # Print traceback for debugging
-            import traceback
-            logger.error(traceback.format_exc())
+            logger.error(f"Error in screenshot function: {str(e)}")
             return None
-
+        
     def _generate_screenshot_section(self, f, target_url):
         """Generate a section with a screenshot of the website"""
         # Check if we already have a screenshot
@@ -2080,8 +2585,8 @@ class Sidikjari:
             f.write("<div class='section'>")
             f.write("<h2>WEBSITE SCREENSHOT</h2>")
             
-            # Add timestamp
-            from datetime import datetime  # Make sure datetime is imported properly
+            # Add timestamp - import datetime properly to avoid the previous error
+            from datetime import datetime  # Make sure datetime is imported here
             capture_time = datetime.fromtimestamp(os.path.getmtime(screenshot_path))
             f.write(f"<p>Screenshot captured on: {capture_time.strftime('%Y-%m-%d %H:%M:%S')}</p>")
             
@@ -2243,15 +2748,32 @@ class Sidikjari:
                 })
             return node_index[id]
         
-        # Add users
+        # Filter out non-human emails
+        system_emails = ['noreply', 'no-reply', 'donotreply', 'admin@', 'administrator', 
+                         'info@', 'support@', 'help@', 'contact@', 'webmaster@', 
+                         'postmaster@', 'hostmaster@', 'sales@', 'marketing@']
+        
+        human_emails = []
+        for email in self.emails:
+            if not any(pattern in email.lower() for pattern in system_emails):
+                human_emails.append(email)
+        
+        # Add users first
         for user in self.users:
+            # Skip long strings that are likely not user names
+            if len(user) > 40 or user.startswith('/') or '\\' in user:
+                continue
             add_node(f"user_{user}", user, "user")
         
         # Add emails and create links to users
-        for email in self.emails:
+        for email in human_emails:
             if '@' in email:
                 username, domain = email.split('@')
                 
+                # Skip technical or system usernames
+                if username.lower() in ['administrator', 'admin', 'support', 'info', 'contact']:
+                    continue
+                    
                 # Add email node
                 email_idx = add_node(f"email_{email}", email, "email")
                 
@@ -2267,233 +2789,255 @@ class Sidikjari:
                 
                 # Link users to emails if username matches
                 for user in self.users:
+                    # Skip non-user strings
+                    if len(user) > 40 or user.startswith('/') or '\\' in user:
+                        continue
+                    
                     # Simple matching - can be improved
-                    if user.lower() in username.lower() or username.lower() in user.lower():
-                        user_idx = node_index[f"user_{user}"]
-                        links.append({
-                            "source": user_idx,
-                            "target": email_idx,
-                            "type": "owns"
-                        })
+                    if (user.lower() in username.lower() or 
+                        username.lower() in user.lower() or
+                        self._calculate_similarity(user.lower(), username.lower()) > 0.7):
+                        user_idx = node_index.get(f"user_{user}")
+                        if user_idx is not None:  # Ensure the user node exists
+                            links.append({
+                                "source": user_idx,
+                                "target": email_idx,
+                                "type": "owns"
+                            })
         
         # Add domains and their relationships
         for domain in self.internal_domains:
+            # Skip overly long domains that might be error text
+            if len(domain) > 50:
+                continue
+                
             domain_idx = add_node(f"domain_{domain}", domain, "domain")
             
             # Link domains to IPs
             for ip in self.ip_addresses:
-                if ip in self.ip_info and domain in self.ip_info[ip].get('associated_domains', []):
-                    ip_idx = add_node(f"ip_{ip}", ip, "ip")
-                    links.append({
-                        "source": domain_idx,
-                        "target": ip_idx,
-                        "type": "resolves_to"
-                    })
+                # Skip non-IP strings that might have been wrongly classified
+                try:
+                    ipaddress.ip_address(ip)  # Validate IP format
+                    if ip in self.ip_info and domain in self.ip_info[ip].get('associated_domains', []):
+                        ip_idx = add_node(f"ip_{ip}", ip, "ip")
+                        links.append({
+                            "source": domain_idx,
+                            "target": ip_idx,
+                            "type": "resolves_to"
+                        })
+                except ValueError:
+                    continue
         
-        # Generate HTML for the visualization
-        f.write("<div class='section'>")
-        f.write("<h2>RELATIONSHIP GRAPH</h2>")
-        f.write("<p>Interactive visualization of relationships between entities discovered in metadata.</p>")
-        
-        # Controls for the graph
-        f.write("""
-        <div style="margin-bottom: 15px;">
-            <div style="margin-bottom: 10px;">
-                <strong>Filter by type:</strong>
-                <label><input type="checkbox" class="node-type" value="user" checked> Users</label>
-                <label><input type="checkbox" class="node-type" value="email" checked> Emails</label>
-                <label><input type="checkbox" class="node-type" value="domain" checked> Domains</label>
-                <label><input type="checkbox" class="node-type" value="ip" checked> IP Addresses</label>
+        # Generate HTML for the visualization only if we have meaningful data
+        if len(nodes) > 1 and len(links) > 0:
+            f.write("<div class='section'>")
+            f.write("<h2>RELATIONSHIP GRAPH</h2>")
+            f.write("<p>Interactive visualization of relationships between entities discovered in metadata.</p>")
+            
+            # Controls for the graph
+            f.write("""
+            <div style="margin-bottom: 15px;">
+                <div style="margin-bottom: 10px;">
+                    <strong>Filter by type:</strong>
+                    <label><input type="checkbox" class="node-type" value="user" checked> Users</label>
+                    <label><input type="checkbox" class="node-type" value="email" checked> Emails</label>
+                    <label><input type="checkbox" class="node-type" value="domain" checked> Domains</label>
+                    <label><input type="checkbox" class="node-type" value="ip" checked> IP Addresses</label>
+                </div>
+                <button id="reset-zoom" style="margin-right: 10px;">Reset Zoom</button>
+                <input type="range" id="link-distance" min="30" max="300" value="100">
+                <label for="link-distance">Link Distance</label>
             </div>
-            <button id="reset-zoom" style="margin-right: 10px;">Reset Zoom</button>
-            <input type="range" id="link-distance" min="30" max="300" value="100">
-            <label for="link-distance">Link Distance</label>
-        </div>
-        """)
-        
-        # SVG container for the graph
-        f.write('<svg id="relationship-graph" width="100%" height="600" style="border: 1px solid #ccc; border-radius: 5px;"></svg>')
-        
-        # Load D3.js and add visualization code
-        f.write("""
-        <script src="https://d3js.org/d3.v7.min.js"></script>
-        <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Graph data
-            const nodes = """)
-        f.write(json.dumps(nodes))
-        f.write(";\n        const links = ")
-        f.write(json.dumps(links))
-        f.write(""";
+            """)
             
-            // Node colors by type
-            const colors = {
-                user: "#4299E1",   // Blue
-                email: "#48BB78",  // Green
-                domain: "#ED8936", // Orange
-                ip: "#9F7AEA"      // Purple
-            };
+            # SVG container for the graph
+            f.write('<svg id="relationship-graph" width="100%" height="600" style="border: 1px solid #ccc; border-radius: 5px;"></svg>')
             
-            // Node sizes by type
-            const sizes = {
-                user: 8,
-                email: 6,
-                domain: 10,
-                ip: 7
-            };
-            
-            // Set up the SVG
-            const svg = d3.select("#relationship-graph");
-            const width = svg.node().getBoundingClientRect().width;
-            const height = svg.node().getBoundingClientRect().height;
-            
-            // Create zoom behavior
-            const zoom = d3.zoom()
-                .scaleExtent([0.1, 4])
-                .on("zoom", (event) => {
-                    g.attr("transform", event.transform);
-                });
-            
-            svg.call(zoom);
-            
-            // Create container for the graph
-            const g = svg.append("g");
-            
-            // Initialize the simulation
-            const simulation = d3.forceSimulation(nodes)
-                .force("link", d3.forceLink(links).id(d => d.id).distance(100))
-                .force("charge", d3.forceManyBody().strength(-200))
-                .force("center", d3.forceCenter(width / 2, height / 2))
-                .force("collision", d3.forceCollide().radius(d => sizes[d.type] * 2));
-            
-            // Create links
-            const link = g.append("g")
-                .selectAll("line")
-                .data(links)
-                .join("line")
-                .attr("stroke", "#999")
-                .attr("stroke-opacity", 0.6)
-                .attr("stroke-width", 1);
-            
-            // Create nodes
-            const node = g.append("g")
-                .selectAll("circle")
-                .data(nodes)
-                .join("circle")
-                .attr("r", d => sizes[d.type])
-                .attr("fill", d => colors[d.type])
-                .attr("class", d => `node-${d.type}`)
-                .call(drag(simulation));
-            
-            // Add labels
-            const label = g.append("g")
-                .selectAll("text")
-                .data(nodes)
-                .join("text")
-                .text(d => d.label)
-                .attr("font-size", 8)
-                .attr("dx", 12)
-                .attr("dy", ".35em")
-                .attr("class", d => `label-${d.type}`)
-                .attr("pointer-events", "none");
-            
-            // Initialize the simulation
-            simulation.on("tick", () => {
-                link
-                    .attr("x1", d => d.source.x)
-                    .attr("y1", d => d.source.y)
-                    .attr("x2", d => d.target.x)
-                    .attr("y2", d => d.target.y);
+            # Load D3.js and add visualization code
+            f.write("""
+            <script src="https://d3js.org/d3.v7.min.js"></script>
+            <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                // Graph data
+                const nodes = """)
+            f.write(json.dumps(nodes))
+            f.write(";\n        const links = ")
+            f.write(json.dumps(links))
+            f.write(""";
                 
-                node
-                    .attr("cx", d => d.x)
-                    .attr("cy", d => d.y);
+                // Node colors by type
+                const colors = {
+                    user: "#4299E1",   // Blue
+                    email: "#48BB78",  // Green
+                    domain: "#ED8936", // Orange
+                    ip: "#9F7AEA"      // Purple
+                };
                 
-                label
-                    .attr("x", d => d.x)
-                    .attr("y", d => d.y);
-            });
-            
-            // Add tooltips
-            node.append("title")
-                .text(d => `${d.label} (${d.type})`);
-            
-            // Implement dragging
-            function drag(simulation) {
-                function dragstarted(event) {
-                    if (!event.active) simulation.alphaTarget(0.3).restart();
-                    event.subject.fx = event.subject.x;
-                    event.subject.fy = event.subject.y;
-                }
+                // Node sizes by type
+                const sizes = {
+                    user: 8,
+                    email: 6,
+                    domain: 10,
+                    ip: 7
+                };
                 
-                function dragged(event) {
-                    event.subject.fx = event.x;
-                    event.subject.fy = event.y;
-                }
+                // Set up the SVG
+                const svg = d3.select("#relationship-graph");
+                const width = svg.node().getBoundingClientRect().width;
+                const height = svg.node().getBoundingClientRect().height;
                 
-                function dragended(event) {
-                    if (!event.active) simulation.alphaTarget(0);
-                    event.subject.fx = null;
-                    event.subject.fy = null;
-                }
-                
-                return d3.drag()
-                    .on("start", dragstarted)
-                    .on("drag", dragged)
-                    .on("end", dragended);
-            }
-            
-            // Handle type filtering
-            document.querySelectorAll('.node-type').forEach(checkbox => {
-                checkbox.addEventListener('change', function() {
-                    const type = this.value;
-                    const isChecked = this.checked;
-                    
-                    // Update node visibility
-                    node.filter(d => d.type === type)
-                        .style("display", isChecked ? "block" : "none");
-                    
-                    // Update label visibility
-                    label.filter(d => d.type === type)
-                        .style("display", isChecked ? "block" : "none");
-                    
-                    // Update link visibility
-                    link.style("display", function(d) {
-                        const sourceType = nodes[links.indexOf(d)].source.type;
-                        const targetType = nodes[links.indexOf(d)].target.type;
-                        
-                        // Check if either end of the link is hidden
-                        const sourceVisible = document.querySelector(`.node-type[value="${sourceType}"]`).checked;
-                        const targetVisible = document.querySelector(`.node-type[value="${targetType}"]`).checked;
-                        
-                        return (sourceVisible && targetVisible) ? "block" : "none";
+                // Create zoom behavior
+                const zoom = d3.zoom()
+                    .scaleExtent([0.1, 4])
+                    .on("zoom", (event) => {
+                        g.attr("transform", event.transform);
                     });
+                
+                svg.call(zoom);
+                
+                // Create container for the graph
+                const g = svg.append("g");
+                
+                // Initialize the simulation
+                const simulation = d3.forceSimulation(nodes)
+                    .force("link", d3.forceLink(links).id(d => d.id).distance(100))
+                    .force("charge", d3.forceManyBody().strength(-200))
+                    .force("center", d3.forceCenter(width / 2, height / 2))
+                    .force("collision", d3.forceCollide().radius(d => sizes[d.type] * 2));
+                
+                // Create links
+                const link = g.append("g")
+                    .selectAll("line")
+                    .data(links)
+                    .join("line")
+                    .attr("stroke", "#999")
+                    .attr("stroke-opacity", 0.6)
+                    .attr("stroke-width", 1);
+                
+                // Create nodes
+                const node = g.append("g")
+                    .selectAll("circle")
+                    .data(nodes)
+                    .join("circle")
+                    .attr("r", d => sizes[d.type])
+                    .attr("fill", d => colors[d.type])
+                    .attr("class", d => `node-${d.type}`)
+                    .call(drag(simulation));
+                
+                // Add labels
+                const label = g.append("g")
+                    .selectAll("text")
+                    .data(nodes)
+                    .join("text")
+                    .text(d => d.label)
+                    .attr("font-size", 8)
+                    .attr("dx", 12)
+                    .attr("dy", ".35em")
+                    .attr("class", d => `label-${d.type}`)
+                    .attr("pointer-events", "none");
+                
+                // Initialize the simulation
+                simulation.on("tick", () => {
+                    link
+                        .attr("x1", d => d.source.x)
+                        .attr("y1", d => d.source.y)
+                        .attr("x2", d => d.target.x)
+                        .attr("y2", d => d.target.y);
                     
-                    // Reheat the simulation
+                    node
+                        .attr("cx", d => d.x)
+                        .attr("cy", d => d.y);
+                    
+                    label
+                        .attr("x", d => d.x)
+                        .attr("y", d => d.y);
+                });
+                
+                // Add tooltips
+                node.append("title")
+                    .text(d => `${d.label} (${d.type})`);
+                
+                // Implement dragging
+                function drag(simulation) {
+                    function dragstarted(event) {
+                        if (!event.active) simulation.alphaTarget(0.3).restart();
+                        event.subject.fx = event.subject.x;
+                        event.subject.fy = event.subject.y;
+                    }
+                    
+                    function dragged(event) {
+                        event.subject.fx = event.x;
+                        event.subject.fy = event.y;
+                    }
+                    
+                    function dragended(event) {
+                        if (!event.active) simulation.alphaTarget(0);
+                        event.subject.fx = null;
+                        event.subject.fy = null;
+                    }
+                    
+                    return d3.drag()
+                        .on("start", dragstarted)
+                        .on("drag", dragged)
+                        .on("end", dragended);
+                }
+                
+                // Handle type filtering
+                document.querySelectorAll('.node-type').forEach(checkbox => {
+                    checkbox.addEventListener('change', function() {
+                        const type = this.value;
+                        const isChecked = this.checked;
+                        
+                        // Update node visibility
+                        node.filter(d => d.type === type)
+                            .style("display", isChecked ? "block" : "none");
+                        
+                        // Update label visibility
+                        label.filter(d => d.type === type)
+                            .style("display", isChecked ? "block" : "none");
+                        
+                        // Update link visibility
+                        link.style("display", function(d) {
+                            const sourceType = nodes[links.indexOf(d)].source.type;
+                            const targetType = nodes[links.indexOf(d)].target.type;
+                            
+                            // Check if either end of the link is hidden
+                            const sourceVisible = document.querySelector(`.node-type[value="${sourceType}"]`).checked;
+                            const targetVisible = document.querySelector(`.node-type[value="${targetType}"]`).checked;
+                            
+                            return (sourceVisible && targetVisible) ? "block" : "none";
+                        });
+                        
+                        // Reheat the simulation
+                        simulation.alpha(0.3).restart();
+                    });
+                });
+                
+                // Reset zoom
+                document.getElementById('reset-zoom').addEventListener('click', function() {
+                    svg.transition().duration(750).call(
+                        zoom.transform,
+                        d3.zoomIdentity,
+                        d3.zoomTransform(svg.node()).invert([width / 2, height / 2])
+                    );
+                });
+                
+                // Update link distance
+                document.getElementById('link-distance').addEventListener('input', function() {
+                    const distance = parseInt(this.value);
+                    simulation.force("link").distance(distance);
                     simulation.alpha(0.3).restart();
                 });
             });
+            </script>
+            """)
             
-            // Reset zoom
-            document.getElementById('reset-zoom').addEventListener('click', function() {
-                svg.transition().duration(750).call(
-                    zoom.transform,
-                    d3.zoomIdentity,
-                    d3.zoomTransform(svg.node()).invert([width / 2, height / 2])
-                );
-            });
-            
-            // Update link distance
-            document.getElementById('link-distance').addEventListener('input', function() {
-                const distance = parseInt(this.value);
-                simulation.force("link").distance(distance);
-                simulation.alpha(0.3).restart();
-            });
-        });
-        </script>
-        """)
-        
-        f.write("</div>") # End of section
+            f.write("</div>") # End of section
+
+    def _calculate_similarity(self, str1, str2):
+        """Calculate string similarity ratio for fuzzy matching"""
+        from difflib import SequenceMatcher
+        return SequenceMatcher(None, str1, str2).ratio()
 
     def run(self):
         """Execute the full analysis"""
@@ -2597,7 +3141,7 @@ def main():
             from selenium import webdriver
         except ImportError:
             print(f"\n{Fore.YELLOW}Warning: Selenium is not installed. Website screenshots will be disabled.{Style.RESET_ALL}")
-            print(f"{Fore.YELLOW}To enable screenshots, install Selenium: pip install selenium webdriver-manager{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}To _analyze_domain_infoenable screenshots, install Selenium: pip install selenium webdriver-manager{Style.RESET_ALL}")
     
     try:
         if args.url:
