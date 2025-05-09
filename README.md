@@ -1,7 +1,7 @@
 # Sidikjari: Advanced Metadata Extraction and Analysis Tool
 
 **Overview**
-Sidikjari is a sophisticated Python-based metadata extraction and analysis tool designed for cybersecurity professionals, penetration testers, digital forensic analysts, and security researchers. It systematically crawls websites to discover documents, extracts comprehensive metadata from various file types, and generates detailed interactive reports that highlight potential security risks, information leakage, and organizational relationships.
+Sidikjari is a Python-based metadata extraction and analysis tool designed for cybersecurity professionals, penetration testers, digital forensic analysts, and security researchers. It systematically crawls websites to discover documents, extracts comprehensive metadata from various file types, and generates detailed interactive reports that highlight potential security risks, information leakage, and organizational relationships.
 
 Sidikjari helps identify sensitive information unintentionally exposed in document metadata that could be leveraged during security assessments, investigations, or by malicious actors.
 
