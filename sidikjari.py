@@ -1369,7 +1369,7 @@ class Sidikjari:
     def _analyze_metadata(self):
         """Analyze collected metadata to find relationships"""
         logger.info(f"{Fore.GREEN}Analyzing collected metadata{Style.RESET_ALL}")
-        
+
         # Group data by domain
         domain_data = defaultdict(lambda: {
             'users': set(),
@@ -1378,28 +1378,28 @@ class Sidikjari:
             'ips': set(),
             'software': set()
         })
-        
+
         # Process emails
         for email in self.emails:
             if '@' in email:
                 username, domain = email.split('@')
                 domain_data[domain]['users'].add(username)
                 domain_data[domain]['emails'].add(email)
-        
+
         # Process domains and IPs
         for domain in self.internal_domains:
             try:
                 # Try to resolve domain to IP
-                answers = dns.resolver.resolve(domain, 'A')
+                answers = dns_resolve(domain, 'A')
                 for answer in answers:
                     ip = answer.to_text()
                     domain_data[domain]['ips'].add(ip)
                     self.ip_addresses.add(ip)
             except:
                 pass
-        
+
         # Generate domain report
-        self.generate_reports(domain_data) 
+        self.generate_reports(domain_data)
 
     def generate_reports(self, domain_data=None):
         """Generate HTML report with enhanced features"""
@@ -1491,23 +1491,23 @@ class Sidikjari:
             'ip_addresses': [],
             'mx_records': []
         }
-        
+
         # Get WHOIS information
         try:
             logger.info(f"Getting WHOIS information for {domain}")
             w = whois.whois(domain)
             logger.debug(f"Raw WHOIS data: {w}")
-            
+
             # Convert data to a dictionary for easier handling
             whois_dict = {}
             for key, value in w.items():
                 if value is not None:
                     whois_dict[key.lower()] = value
-            
+
             # Process standard fields
             if 'registrar' in whois_dict:
                 domain_info['registrar'] = whois_dict['registrar']
-            
+
             # Process dates
             for date_field, target_field in [
                 ('creation_date', 'creation_date'),
@@ -1520,7 +1520,7 @@ class Sidikjari:
                         domain_info[target_field] = value[0]
                     else:
                         domain_info[target_field] = value
-            
+
             # Process name servers
             if 'name_servers' in whois_dict:
                 ns_list = whois_dict['name_servers']
@@ -1528,7 +1528,7 @@ class Sidikjari:
                     domain_info['name_servers'] = ns_list
                 elif ns_list:
                     domain_info['name_servers'] = [ns_list]
-            
+
             # Process domain status
             if 'status' in whois_dict:
                 status_list = whois_dict['status']
@@ -1536,7 +1536,7 @@ class Sidikjari:
                     domain_info['domain_status'] = status_list
                 elif status_list:
                     domain_info['domain_status'] = [status_list]
-            
+
             # Process contact information directly from dict keys
             contact_mappings = {
                 'registrant': {
@@ -1576,7 +1576,7 @@ class Sidikjari:
                     'country': ['tech_country', 'technical_country']
                 }
             }
-            
+
             # Process contact information with improved mapping
             for contact_type, fields in contact_mappings.items():
                 for field, key_options in fields.items():
@@ -1584,12 +1584,12 @@ class Sidikjari:
                         if key.lower() in whois_dict:
                             domain_info[contact_type][field] = whois_dict[key.lower()]
                             break
-            
+
             # Process raw text data using regex if available
             if hasattr(w, 'text') and w.text:
                 whois_text = w.text.lower()
                 logger.debug(f"Processing raw WHOIS text: {whois_text[:200]}...")  # Log first 200 chars
-                
+
                 # Process contact information using regex for each contact type
                 for contact_type in ['registrant', 'admin', 'tech']:
                     for field in domain_info[contact_type].keys():
@@ -1601,19 +1601,19 @@ class Sidikjari:
                                 rf"{contact_type} {field}:\s*([^\n]+)",
                                 rf"{contact_type}-{field}:\s*([^\n]+)"
                             ]
-                            
+
                             for pattern in patterns:
                                 match = re.search(pattern, whois_text)
                                 if match:
                                     domain_info[contact_type][field] = match.group(1).strip()
                                     break
-                
+
                 # Try to extract registrar info if not already set
                 if not domain_info['registrar']:
                     registrar_match = re.search(r"registrar:\s*([^\n]+)", whois_text)
                     if registrar_match:
                         domain_info['registrar'] = registrar_match.group(1).strip()
-                
+
                 # Try to extract name servers if not already set
                 if not domain_info['name_servers']:
                     ns_matches = re.findall(r"name server:\s*([^\n]+)", whois_text)
@@ -1624,23 +1624,23 @@ class Sidikjari:
             # Print traceback for debugging
             import traceback
             logger.error(traceback.format_exc())
-        
+
         # Get DNS A records
         try:
             logger.info(f"Getting DNS A records for {domain}")
             # First try to get all A records
-            answers = dns.resolver.resolve(domain, 'A')
+            answers = dns_resolve(domain, 'A')
             for answer in answers:
                 ip = answer.to_text()
                 domain_info['ip_addresses'].append(ip)
-                
+
                 # Get additional IP information
                 self._get_ip_info(ip, domain)
-            
+
             # Also check www. subdomain
             try:
                 www_domain = f"www.{domain}"
-                www_answers = dns.resolver.resolve(www_domain, 'A')
+                www_answers = dns_resolve(www_domain, 'A')
                 for answer in www_answers:
                     ip = answer.to_text()
                     if ip not in domain_info['ip_addresses']:
@@ -1650,20 +1650,29 @@ class Sidikjari:
                 logger.debug(f"Error resolving www.{domain}: {str(www_e)}")
         except Exception as dns_e:
             logger.error(f"Error resolving DNS A records for {domain}: {str(dns_e)}")
-        
+
         # Get MX records
         try:
             logger.info(f"Getting DNS MX records for {domain}")
-            mx_records = dns.resolver.resolve(domain, 'MX')
+            mx_records = dns_resolve(domain, 'MX')
             for mx in mx_records:
                 domain_info['mx_records'].append(f"{mx.preference} {mx.exchange}")
         except Exception as mx_e:
             logger.debug(f"Error resolving MX records for {domain}: {str(mx_e)}")
-        
+
         # Log the collected information
         logger.info(f"Completed domain info collection for {domain}")
-        
+
         return domain_info
+
+    def dns_resolve(domain, record_type):
+        """Resolve DNS records with backward compatibility for older dnspython versions"""
+        try:
+            # Try dnspython 2.x method first
+            return dns.resolver.resolve(domain, record_type)
+        except AttributeError:
+            # Fall back to dnspython 1.x method
+            return dns.resolver.query(domain, record_type)
 
     def _map_contact_attribute(self, contact_dict, attr_name, attr_value):
         """Map WHOIS attributes to contact fields"""
