@@ -84,6 +84,15 @@ logging.basicConfig(
 logger = logging.getLogger("Sidikjari")
 console = Console()
 
+def dns_resolve(domain, record_type):
+    """Resolve DNS records with backward compatibility for older dnspython versions"""
+    try:
+        # Try dnspython 2.x method first
+        return dns.resolver.resolve(domain, record_type)
+    except AttributeError:
+        # Fall back to dnspython 1.x method
+        return dns.resolver.query(domain, record_type)
+
 class Sidikjari:
     def __init__(self, target_url=None, output_dir="output", depth=2, threads=10, time_delay=0.0, user_agent="default"):
         # Add https:// scheme if not present and target_url is provided
@@ -1664,15 +1673,6 @@ class Sidikjari:
         logger.info(f"Completed domain info collection for {domain}")
 
         return domain_info
-
-    def dns_resolve(domain, record_type):
-        """Resolve DNS records with backward compatibility for older dnspython versions"""
-        try:
-            # Try dnspython 2.x method first
-            return dns.resolver.resolve(domain, record_type)
-        except AttributeError:
-            # Fall back to dnspython 1.x method
-            return dns.resolver.query(domain, record_type)
 
     def _map_contact_attribute(self, contact_dict, attr_name, attr_value):
         """Map WHOIS attributes to contact fields"""
