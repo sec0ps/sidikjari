@@ -176,59 +176,76 @@ class Sidikjari:
         # Ensure URL has a scheme (add https:// if not present)
         if not url.startswith(('http://', 'https://')):
             url = f'https://{url}'
-            
+
         if url in self.visited_urls or current_depth > self.depth:
             return
-        
+
         self.visited_urls.add(url)
-        
+
         try:
             # Implement time delay between requests if specified
             if self.time_delay > 0:
                 time.sleep(self.time_delay)
-            
+
             # Set custom headers with the selected user agent
             headers = {
                 'User-Agent': self.user_agent
             }
-            
+
             # Disable SSL certificate verification
             response = requests.get(url, timeout=10, verify=False, headers=headers)
             if response.status_code == 200:
                 content_type = response.headers.get('Content-Type', '')
-                
+
                 # Check if this is a document we're interested in - STRICTLY filter by extension
                 file_extension = os.path.splitext(urlparse(url).path)[1].lower().replace('.', '')
                 if file_extension in self.interesting_extensions:
                     self.document_urls.add(url)
                     logger.info(f"Found document to analyze: {url} ({file_extension})")
-                
+
                 # If HTML, parse links and continue crawling
                 if 'text/html' in content_type:
                     soup = BeautifulSoup(response.text, 'html.parser')
-                    
+
                     # Check for forms on the page
                     forms = soup.find_all('form')
                     if forms:
                         logger.info(f"Found {len(forms)} form(s) on {url}")
                         self._capture_form_screenshots(url, forms)
-                    
+
+                    # Check for images on the page
+                    for img in soup.find_all('img', src=True):
+                        img_url = img['src']
+
+                        # Handle relative URLs
+                        if not bool(urlparse(img_url).netloc):
+                            img_url = urljoin(url, img_url)
+
+                        # Check if this is an image we're interested in
+                        img_extension = os.path.splitext(urlparse(img_url).path)[1].lower().replace('.', '')
+                        if img_extension in self.interesting_extensions:
+                            # Only add images from the same domain
+                            if urlparse(self.target_url).netloc == urlparse(img_url).netloc:
+                                self.document_urls.add(img_url)
+                                logger.info(f"Found image to analyze: {img_url} ({img_extension})")
+
+                    # Check for linked documents and images in href attributes
                     for link in soup.find_all('a', href=True):
                         next_url = link['href']
-                        
+
                         # Handle relative URLs
                         if not bool(urlparse(next_url).netloc):
                             next_url = urljoin(url, next_url)
-                        
+
                         # Ensure target_url has a scheme for comparison
                         target_domain = self.target_url
                         if not target_domain.startswith(('http://', 'https://')):
                             target_domain = f'https://{target_domain}'
-                        
+
                         # Only follow links to the same domain
                         if urlparse(target_domain).netloc == urlparse(next_url).netloc:
                             self._crawl_url(next_url, current_depth + 1)
-                            
+
         except Exception as e:
             logger.error(f"Error crawling {url}: {str(e)}")
     
