@@ -233,47 +233,38 @@ class Sidikjari:
             logger.error(f"Error crawling {url}: {str(e)}")
     
     def _capture_form_screenshots(self, url, forms):
-        """Capture screenshots of sensitive forms found on a page using wkhtmltoimage"""
+        """Capture screenshots of sensitive forms found on a page using headless Chrome"""
         try:
             # Create a directory for form screenshots if it doesn't exist
             form_screenshots_dir = os.path.join(self.output_dir, "form_screenshots")
             os.makedirs(form_screenshots_dir, exist_ok=True)
-            
+
             # Store form information
             if not hasattr(self, 'form_data'):
                 self.form_data = []
-            
+
             # Extract page name from URL for naming screenshots
             parsed_url = urlparse(url)
             page_name = parsed_url.path.strip('/')
             if not page_name:
                 page_name = "homepage"
             else:
-                # Clean up the page name to be file-system friendly
                 page_name = re.sub(r'[^\w\-_]', '_', page_name)
-                page_name = re.sub(r'_+', '_', page_name)  # Replace multiple underscores with single
-                page_name = page_name[:50]  # Limit length
-            
+                page_name = re.sub(r'_+', '_', page_name)
+                page_name = page_name[:50]
+
             # Identify sensitive forms
             sensitive_forms = []
             for i, form_element in enumerate(forms):
-                # Skip search forms and non-sensitive forms
                 if self._is_search_form(form_element):
                     logger.info(f"Skipping search form on {url}")
                     continue
-                    
-                # Determine if this is a sensitive form
+
                 if self._is_sensitive_form(form_element):
-                    # Generate unique identifier for this form
                     form_id = f"{page_name}_{i+1}"
-                    
-                    # Get form attributes
                     form_attrs = self._extract_form_attributes(form_element)
-                    
-                    # Create a title for this form
                     form_title = self._create_form_title(form_element, form_attrs, i)
-                    
-                    # Add form info to our list
+
                     sensitive_forms.append({
                         'url': url,
                         'form_index': i+1,
@@ -282,97 +273,68 @@ class Sidikjari:
                         'attributes': form_attrs,
                         'page_name': page_name
                     })
-            
-            # Log how many sensitive forms found
+
             logger.info(f"Found {len(sensitive_forms)} sensitive forms on {url}")
-            
-            # Check if wkhtmltoimage is available
-            if not shutil.which('wkhtmltoimage'):
-                logger.error("wkhtmltoimage tool not found. Please make sure wkhtmltopdf is installed correctly.")
+
+            if not sensitive_forms:
                 return
-            
-            # Only proceed if we have sensitive forms to capture
-            if sensitive_forms:
-                # Take a screenshot of the full page once
-                full_page_screenshot_path = os.path.join(form_screenshots_dir, f"{page_name}_full.png")
-                
-                # Build the command for full page screenshot
-                cmd = [
-                    'wkhtmltoimage',
-                    '--width', '1366',       # Set width
-                    '--height', '1536',      # Set taller height to capture more of page
-                    '--quality', '90',       # High quality
-                    '--javascript-delay', '2000',  # Wait 2 seconds for JavaScript
-                    '--no-stop-slow-scripts',      # Don't stop for slow scripts
-                    '--disable-smart-width',       # Use specified width
-                    '--enable-local-file-access',  # Allow local file access if needed
-                    '--load-error-handling', 'ignore',  # Ignore load errors
-                ]
-                
-                # Add user-agent to avoid bot detection
-                cmd.extend(['--custom-header', 'User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'])
-                
-                # Add the URL and output path
-                cmd.extend([url, full_page_screenshot_path])
-                
+
+            # Take screenshot using headless Chrome
+            full_page_screenshot_path = os.path.join(form_screenshots_dir, f"{page_name}_full.png")
+
+            try:
+                from selenium import webdriver
+                from selenium.webdriver.chrome.options import Options
+                from selenium.webdriver.chrome.service import Service
+                from selenium.common.exceptions import WebDriverException
+
                 try:
-                    # Execute the command with a timeout
-                    process = subprocess.run(
-                        cmd,
-                        timeout=30,  # 30-second timeout
-                        check=False, # Don't raise exception on non-zero exit
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE
-                    )
-                    
-                    # Check if the screenshot was successful
+                    from webdriver_manager.chrome import ChromeDriverManager
+                    service = Service(ChromeDriverManager().install())
+                except ImportError:
+                    service = Service()
+
+                chrome_options = Options()
+                chrome_options.add_argument("--headless=new")
+                chrome_options.add_argument("--no-sandbox")
+                chrome_options.add_argument("--disable-dev-shm-usage")
+                chrome_options.add_argument("--disable-gpu")
+                chrome_options.add_argument("--window-size=1366,1536")
+                chrome_options.add_argument("--ignore-certificate-errors")
+                chrome_options.add_argument(f"--user-agent={self.user_agent}")
+
+                driver = webdriver.Chrome(service=service, options=chrome_options)
+                driver.set_page_load_timeout(30)
+
+                try:
+                    driver.get(url)
+                    time.sleep(3)
+
+                    # Get full page height and resize
+                    total_height = driver.execute_script("return document.body.scrollHeight")
+                    driver.set_window_size(1366, min(total_height + 100, 4000))
+                    time.sleep(1)
+
+                    driver.save_screenshot(full_page_screenshot_path)
+
                     if os.path.exists(full_page_screenshot_path) and os.path.getsize(full_page_screenshot_path) > 0:
-                        logger.info(f"Full page screenshot saved to {full_page_screenshot_path}")
-                        
-                        # Use the full page screenshot for all forms
+                        logger.info(f"Form screenshot saved to {full_page_screenshot_path}")
                         for form in sensitive_forms:
                             form['screenshot_path'] = full_page_screenshot_path
                             self.form_data.append(form)
-                        
                     else:
-                        logger.warning(f"Failed to capture full page screenshot for {url}")
-                        
-                        # Try with simpler options if the first attempt failed
-                        simple_cmd = [
-                            'wkhtmltoimage',
-                            '--width', '1024',
-                            '--height', '1024',
-                            '--disable-javascript',  # Disable JavaScript completely
-                            url,
-                            full_page_screenshot_path
-                        ]
-                        
-                        process = subprocess.run(
-                            simple_cmd,
-                            timeout=20,
-                            check=False,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE
-                        )
-                        
-                        if os.path.exists(full_page_screenshot_path) and os.path.getsize(full_page_screenshot_path) > 0:
-                            logger.info(f"Full page screenshot saved using simplified options to {full_page_screenshot_path}")
-                            
-                            # Add form data with the simplified screenshot
-                            for form in sensitive_forms:
-                                form['screenshot_path'] = full_page_screenshot_path
-                                self.form_data.append(form)
-                        else:
-                            logger.error(f"Both wkhtmltoimage attempts failed for {url}")
-                    
-                except subprocess.TimeoutExpired:
-                    logger.error(f"Timeout while running wkhtmltoimage for {url}")
-                except Exception as wk_e:
-                    logger.error(f"Error using wkhtmltoimage: {str(wk_e)}")
-                    
+                        logger.warning(f"Failed to capture form screenshot for {url}")
+
+                finally:
+                    driver.quit()
+
+            except ImportError:
+                logger.warning("Selenium not installed - form screenshots disabled")
+            except WebDriverException as e:
+                logger.error(f"WebDriver error capturing forms: {str(e)}")
+
         except Exception as e:
-            logger.error(f"Error setting up form screenshot capture for {url}: {str(e)}")
-            # Print traceback for debugging
+            logger.error(f"Error in form screenshot capture: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
     
@@ -2475,101 +2437,88 @@ class Sidikjari:
             logger.error(traceback.format_exc())
 
     def _capture_website_screenshot(self, target_url):
-        """Capture a screenshot of the target website's landing page using wkhtmltopdf"""
+        """Capture a screenshot of the target website's landing page using headless Chrome"""
         try:
             # Create a directory for screenshots if it doesn't exist
             screenshots_dir = os.path.join(self.output_dir, "screenshots")
             os.makedirs(screenshots_dir, exist_ok=True)
-            
+
             # Generate a filename for the screenshot
             domain = urlparse(target_url).netloc
             if not domain:
                 domain = "website"
             screenshot_path = os.path.join(screenshots_dir, f"{domain}_screenshot.png")
-            
-            logger.info(f"Capturing screenshot of {target_url} using wkhtmltoimage")
-            
-            # Use wkhtmltoimage (part of wkhtmltopdf package)
+
+            logger.info(f"Capturing screenshot of {target_url} using headless Chrome")
+
             try:
-                # Check if wkhtmltoimage is available
-                if not shutil.which('wkhtmltoimage'):
-                    logger.error("wkhtmltoimage tool not found. Please make sure wkhtmltopdf is installed correctly.")
-                    return None
-                    
-                # Build the command
-                cmd = [
-                    'wkhtmltoimage',
-                    '--width', '1366',       # Set width
-                    '--height', '768',       # Set height
-                    '--quality', '90',       # High quality
-                    '--javascript-delay', '2000',  # Wait 2 seconds for JavaScript
-                    '--no-stop-slow-scripts',      # Don't stop for slow scripts
-                    '--disable-smart-width',       # Use specified width
-                    '--enable-local-file-access',  # Allow local file access if needed
-                    '--load-error-handling', 'ignore',  # Ignore load errors
-                ]
-                
-                # Add user-agent to avoid bot detection
-                cmd.extend(['--custom-header', 'User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'])
-                
-                # Add the URL and output path
-                cmd.extend([target_url, screenshot_path])
-                
-                # Execute the command with a timeout
-                process = subprocess.run(
-                    cmd,
-                    timeout=30,  # 30-second timeout
-                    check=False, # Don't raise exception on non-zero exit
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
-                )
-                
-                # Check if the command was successful
-                if process.returncode != 0:
-                    logger.warning(f"wkhtmltoimage returned non-zero exit code: {process.returncode}")
-                    logger.warning(f"Stderr: {process.stderr.decode('utf-8', errors='ignore')}")
-                
-                # Check if the file exists and has content
-                if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 0:
-                    logger.info(f"Screenshot saved to {screenshot_path}")
-                    return screenshot_path
-                else:
-                    logger.warning(f"Screenshot file is empty or does not exist: {screenshot_path}")
-                    
-                    # Try with simpler options if the first attempt failed
-                    simple_cmd = [
-                        'wkhtmltoimage',
-                        '--width', '1024',
-                        '--height', '768',
-                        '--disable-javascript',  # Disable JavaScript completely
-                        target_url,
-                        screenshot_path
-                    ]
-                    
-                    process = subprocess.run(
-                        simple_cmd,
-                        timeout=20,
-                        check=False,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE
-                    )
-                    
+                from selenium import webdriver
+                from selenium.webdriver.chrome.options import Options
+                from selenium.webdriver.chrome.service import Service
+                from selenium.webdriver.support.ui import WebDriverWait
+                from selenium.webdriver.support import expected_conditions as EC
+                from selenium.common.exceptions import TimeoutException, WebDriverException
+
+                # Try to use webdriver_manager if available
+                try:
+                    from webdriver_manager.chrome import ChromeDriverManager
+                    service = Service(ChromeDriverManager().install())
+                except ImportError:
+                    service = Service()  # Use system chromedriver
+
+                # Configure Chrome options
+                chrome_options = Options()
+                chrome_options.add_argument("--headless=new")
+                chrome_options.add_argument("--no-sandbox")
+                chrome_options.add_argument("--disable-dev-shm-usage")
+                chrome_options.add_argument("--disable-gpu")
+                chrome_options.add_argument("--window-size=1920,1080")
+                chrome_options.add_argument("--ignore-certificate-errors")
+                chrome_options.add_argument("--disable-extensions")
+                chrome_options.add_argument("--disable-popup-blocking")
+                chrome_options.add_argument(f"--user-agent={self.user_agent}")
+
+                # Initialize the driver
+                driver = webdriver.Chrome(service=service, options=chrome_options)
+                driver.set_page_load_timeout(30)
+
+                try:
+                    # Navigate to the page
+                    driver.get(target_url)
+
+                    # Wait for page to load
+                    time.sleep(3)
+
+                    # Scroll to trigger lazy-loaded content
+                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight/4);")
+                    time.sleep(1)
+                    driver.execute_script("window.scrollTo(0, 0);")
+                    time.sleep(1)
+
+                    # Take screenshot
+                    driver.save_screenshot(screenshot_path)
+
                     if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 0:
-                        logger.info(f"Screenshot saved using simplified options to {screenshot_path}")
+                        logger.info(f"Screenshot saved to {screenshot_path}")
                         return screenshot_path
                     else:
-                        logger.error("Both wkhtmltoimage attempts failed")
+                        logger.warning("Screenshot file is empty or does not exist")
                         return None
-                        
-            except subprocess.TimeoutExpired:
-                logger.error(f"Timeout while running wkhtmltoimage for {target_url}")
+
+                finally:
+                    driver.quit()
+
+            except ImportError:
+                logger.error("Selenium not installed. Install with: pip install selenium webdriver-manager")
                 return None
-            except Exception as wk_e:
-                logger.error(f"Error using wkhtmltoimage: {str(wk_e)}")
+            except WebDriverException as e:
+                logger.error(f"WebDriver error: {str(e)}")
                 return None
-                
+
         except Exception as e:
             logger.error(f"Error in screenshot function: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
         
     def _generate_screenshot_section(self, f, target_url):
